@@ -14,7 +14,8 @@ import {
   X,
   LogOut,
   ChevronRight,
-  Sparkles
+  Sparkles,
+  Camera
 } from 'lucide-react';
 import { useApp } from '../AppContext';
 
@@ -52,7 +53,6 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
   const { currentUser } = useApp();
   const [isSidebarOpen, setSidebarOpen] = useState(false);
 
-  // Close sidebar on mobile when tab changes
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
     if (window.innerWidth < 1024) {
@@ -66,13 +66,13 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
     { id: 'vendors', label: 'Vendors', icon: <Users size={20} /> },
     { id: 'materials', label: 'Inventory', icon: <Package size={20} /> },
     { id: 'expenses', label: 'Expenses', icon: <Receipt size={20} /> },
+    { id: 'photos', label: 'Site Photos', icon: <Camera size={20} /> },
     { id: 'reports', label: 'Reports', icon: <BarChart3 size={20} /> },
     { id: 'ai-assistant', label: 'AI Assistant', icon: <Sparkles size={20} />, isSpecial: true },
   ];
 
   return (
     <div className="flex min-h-screen bg-slate-50">
-      {/* Mobile Backdrop */}
       {isSidebarOpen && (
         <div 
           className="fixed inset-0 bg-slate-900/50 z-40 lg:hidden backdrop-blur-sm"
@@ -80,7 +80,6 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
         />
       )}
 
-      {/* Sidebar */}
       <aside className={`fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-slate-200 transform transition-transform duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:relative lg:translate-x-0`}>
         <div className="flex flex-col h-full">
           <div className="p-6 flex items-center justify-between">
@@ -123,9 +122,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
         </div>
       </aside>
 
-      {/* Main Content */}
       <main className="flex-1 flex flex-col h-screen overflow-hidden">
-        {/* Header */}
         <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 lg:px-6 shrink-0 z-30">
           <div className="flex items-center gap-2 lg:gap-4">
             <button 
@@ -156,7 +153,6 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
           </div>
         </header>
 
-        {/* Content Area */}
         <div className="flex-1 overflow-y-auto p-4 lg:p-6 bg-slate-50">
           <div className="max-w-7xl mx-auto h-full">
             {children}
