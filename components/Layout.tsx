@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { 
   LayoutDashboard, 
@@ -14,8 +13,7 @@ import {
   X,
   LogOut,
   ChevronRight,
-  Sparkles,
-  Camera
+  Sparkles
 } from 'lucide-react';
 import { useApp } from '../AppContext';
 
@@ -66,7 +64,6 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
     { id: 'vendors', label: 'Vendors', icon: <Users size={20} /> },
     { id: 'materials', label: 'Inventory', icon: <Package size={20} /> },
     { id: 'expenses', label: 'Expenses', icon: <Receipt size={20} /> },
-    { id: 'photos', label: 'Site Photos', icon: <Camera size={20} /> },
     { id: 'reports', label: 'Reports', icon: <BarChart3 size={20} /> },
     { id: 'ai-assistant', label: 'AI Assistant', icon: <Sparkles size={20} />, isSpecial: true },
   ];

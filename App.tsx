@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { AppProvider } from './AppContext';
 import { Layout } from './components/Layout';
@@ -9,7 +8,6 @@ import { Inventory } from './components/Inventory';
 import { ExpenseTracker } from './components/ExpenseTracker';
 import { AIAssistant } from './components/AIAssistant';
 import { Reports } from './components/Reports';
-import { SitePhotos } from './components/SitePhotos';
 
 const MainApp: React.FC = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -26,8 +24,6 @@ const MainApp: React.FC = () => {
         return <Inventory />;
       case 'expenses':
         return <ExpenseTracker />;
-      case 'photos':
-        return <SitePhotos />;
       case 'reports':
         return <Reports />;
       case 'ai-assistant':

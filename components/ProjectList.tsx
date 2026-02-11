@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { 
   Plus, 
@@ -115,22 +114,9 @@ export const ProjectList: React.FC = () => {
                 </div>
               </div>
 
-              <div className="px-5 py-4 bg-slate-50 border-t border-slate-100 flex justify-between items-center group-hover:bg-blue-50 transition-colors">
-                <div className="flex -space-x-2">
-                  {[1, 2, 3].map(i => (
-                    <img 
-                      key={i}
-                      src={`https://picsum.photos/seed/${project.id}${i}/100`} 
-                      className="w-7 h-7 rounded-full border-2 border-white object-cover" 
-                      alt="Team Member" 
-                    />
-                  ))}
-                  <div className="w-7 h-7 rounded-full border-2 border-white bg-slate-200 flex items-center justify-center text-[10px] font-bold text-slate-600">
-                    +4
-                  </div>
-                </div>
+              <div className="px-5 py-4 bg-slate-50 border-t border-slate-100 flex justify-end items-center group-hover:bg-blue-50 transition-colors">
                 <button className="text-blue-600 text-sm font-bold flex items-center gap-1 hover:underline">
-                  View
+                  View Details
                   <ChevronRight size={14} />
                 </button>
               </div>
