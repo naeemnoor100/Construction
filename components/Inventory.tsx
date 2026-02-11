@@ -12,7 +12,9 @@ import {
   ArrowUpRight, 
   ArrowDownRight,
   TrendingDown,
-  Calendar
+  Calendar,
+  Plus,
+  DollarSign
 } from 'lucide-react';
 import { 
   AreaChart, 
@@ -25,14 +27,26 @@ import {
   Legend 
 } from 'recharts';
 import { useApp } from '../AppContext';
-import { Material, StockHistoryEntry } from '../types';
+import { Material, StockHistoryEntry, MaterialUnit } from '../types';
 
 export const Inventory: React.FC = () => {
-  const { materials } = useApp();
+  const { materials, updateMaterial, addMaterial } = useApp();
   const [searchTerm, setSearchTerm] = useState('');
   const [unitFilter, setUnitFilter] = useState('All');
   const [statusFilter, setStatusFilter] = useState('All');
   const [historyMaterial, setHistoryMaterial] = useState<Material | null>(null);
+  const [showPurchaseModal, setShowPurchaseModal] = useState(false);
+
+  // Form State
+  const [formData, setFormData] = useState({
+    materialId: '', // empty for new material
+    newName: '',
+    unit: 'Bag' as MaterialUnit,
+    costPerUnit: '',
+    quantity: '',
+    date: new Date().toISOString().split('T')[0],
+    note: ''
+  });
 
   // Extract unique units for the filter dropdown
   const uniqueUnits = useMemo(() => {
@@ -92,6 +106,55 @@ export const Inventory: React.FC = () => {
       });
   }, [historyMaterial]);
 
+  const handlePurchaseSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const qty = parseFloat(formData.quantity);
+    const cost = parseFloat(formData.costPerUnit);
+    
+    if (isNaN(qty) || qty <= 0) return;
+
+    const newHistoryEntry: StockHistoryEntry = {
+      id: Date.now().toString(),
+      date: formData.date,
+      type: 'Purchase',
+      quantity: qty,
+      note: formData.note || 'Manual Stock Update'
+    };
+
+    if (formData.materialId && formData.materialId !== 'new') {
+      const existing = materials.find(m => m.id === formData.materialId);
+      if (existing) {
+        updateMaterial({
+          ...existing,
+          totalPurchased: existing.totalPurchased + qty,
+          costPerUnit: cost || existing.costPerUnit,
+          history: [...(existing.history || []), newHistoryEntry]
+        });
+      }
+    } else {
+      addMaterial({
+        id: 'm' + Date.now(),
+        name: formData.newName,
+        unit: formData.unit,
+        costPerUnit: cost,
+        totalPurchased: qty,
+        totalUsed: 0,
+        history: [newHistoryEntry]
+      });
+    }
+
+    setShowPurchaseModal(false);
+    setFormData({
+      materialId: '',
+      newName: '',
+      unit: 'Bag',
+      costPerUnit: '',
+      quantity: '',
+      date: new Date().toISOString().split('T')[0],
+      note: ''
+    });
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -99,9 +162,12 @@ export const Inventory: React.FC = () => {
           <h2 className="text-2xl font-bold text-slate-900">Inventory</h2>
           <p className="text-slate-500 text-sm">Real-time material tracking and consumption.</p>
         </div>
-        <button className="w-full sm:w-auto bg-slate-900 text-white px-5 py-2.5 rounded-xl font-semibold flex items-center justify-center gap-2 hover:bg-slate-800 transition-all shadow-md">
+        <button 
+          onClick={() => setShowPurchaseModal(true)}
+          className="w-full sm:w-auto bg-slate-900 text-white px-5 py-2.5 rounded-xl font-semibold flex items-center justify-center gap-2 hover:bg-slate-800 transition-all shadow-md active:scale-95"
+        >
           <ShoppingCart size={18} />
-          Purchase Order
+          Record Purchase
         </button>
       </div>
 
@@ -237,7 +303,7 @@ export const Inventory: React.FC = () => {
                 })
               ) : (
                 <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center">
+                  <td colSpan={6} className="px-6 py-12 text-center">
                     <div className="flex flex-col items-center gap-2 text-slate-300">
                       <Package size={40} strokeWidth={1} />
                       <p className="text-sm font-medium text-slate-500">No matching materials</p>
@@ -249,6 +315,170 @@ export const Inventory: React.FC = () => {
           </table>
         </div>
       </div>
+
+      {/* Record Purchase Modal */}
+      {showPurchaseModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl w-full max-w-xl shadow-2xl overflow-hidden flex flex-col">
+            <div className="p-6 lg:p-8 border-b border-slate-100 flex justify-between items-center shrink-0">
+              <div className="flex items-center gap-4">
+                <div className="p-3 bg-slate-900 text-white rounded-2xl">
+                  <ShoppingCart size={24} />
+                </div>
+                <div>
+                  <h2 className="text-xl lg:text-2xl font-bold text-slate-900">Record Purchase</h2>
+                  <p className="text-sm text-slate-500">Add new stock to inventory</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowPurchaseModal(false)} 
+                className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-all"
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            <form onSubmit={handlePurchaseSubmit} className="flex-1 overflow-y-auto p-6 lg:p-8 space-y-6 no-scrollbar">
+              <div className="space-y-4">
+                <label className="text-sm font-bold text-slate-700 block">Select Material</label>
+                <select 
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                  value={formData.materialId}
+                  onChange={(e) => {
+                    const id = e.target.value;
+                    const mat = materials.find(m => m.id === id);
+                    setFormData(prev => ({
+                      ...prev,
+                      materialId: id,
+                      unit: mat ? mat.unit : prev.unit,
+                      costPerUnit: mat ? mat.costPerUnit.toString() : prev.costPerUnit
+                    }));
+                  }}
+                  required
+                >
+                  <option value="">Choose Existing Material...</option>
+                  <option value="new">+ Add New Material</option>
+                  {materials.map(m => (
+                    <option key={m.id} value={m.id}>{m.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {formData.materialId === 'new' && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                  <div className="space-y-2">
+                    <label className="text-sm font-bold text-slate-700 block">Material Name</label>
+                    <input 
+                      type="text" 
+                      placeholder="e.g., Red Bricks"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
+                      value={formData.newName}
+                      onChange={(e) => setFormData(prev => ({ ...prev, newName: e.target.value }))}
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-bold text-slate-700 block">Unit</label>
+                    <select 
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
+                      value={formData.unit}
+                      onChange={(e) => setFormData(prev => ({ ...prev, unit: e.target.value as MaterialUnit }))}
+                    >
+                      <option>Bag</option>
+                      <option>Ton</option>
+                      <option>KG</option>
+                      <option>Piece</option>
+                      <option>Cubic Meter</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-slate-700 block">Quantity</label>
+                  <input 
+                    type="number" 
+                    placeholder="0.00"
+                    step="0.01"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
+                    value={formData.quantity}
+                    onChange={(e) => setFormData(prev => ({ ...prev, quantity: e.target.value }))}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-slate-700 block">Cost Per Unit ($)</label>
+                  <div className="relative">
+                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                    <input 
+                      type="number" 
+                      placeholder="0.00"
+                      step="0.01"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
+                      value={formData.costPerUnit}
+                      onChange={(e) => setFormData(prev => ({ ...prev, costPerUnit: e.target.value }))}
+                      required
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-slate-700 block">Date of Purchase</label>
+                  <div className="relative">
+                    <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                    <input 
+                      type="date" 
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
+                      value={formData.date}
+                      onChange={(e) => setFormData(prev => ({ ...prev, date: e.target.value }))}
+                      required
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-slate-700 block">Purchase Note (Optional)</label>
+                  <input 
+                    type="text" 
+                    placeholder="Ref # or Project purpose"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
+                    value={formData.note}
+                    onChange={(e) => setFormData(prev => ({ ...prev, note: e.target.value }))}
+                  />
+                </div>
+              </div>
+
+              <div className="bg-blue-50 p-4 rounded-2xl flex items-start gap-3">
+                <TrendingUp className="text-blue-600 mt-1" size={18} />
+                <div className="text-xs text-blue-700 leading-relaxed">
+                  <strong>Financial Impact:</strong> This entry will increase total inventory value by 
+                  <span className="font-bold"> ${((parseFloat(formData.quantity) || 0) * (parseFloat(formData.costPerUnit) || 0)).toLocaleString()}</span>. 
+                  This record will appear in the material's transaction history.
+                </div>
+              </div>
+
+              <div className="flex gap-4 pt-4 shrink-0">
+                <button 
+                  type="button"
+                  onClick={() => setShowPurchaseModal(false)}
+                  className="flex-1 bg-slate-100 text-slate-600 font-bold py-4 rounded-2xl hover:bg-slate-200 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit"
+                  className="flex-1 bg-blue-600 text-white font-bold py-4 rounded-2xl hover:bg-blue-700 shadow-lg shadow-blue-200 transition-colors flex items-center justify-center gap-2"
+                >
+                  <Plus size={20} />
+                  Record Stock
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Stock History Modal */}
       {historyMaterial && (
