@@ -1,10 +1,17 @@
 
 import React from 'react';
 import { 
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
-  LineChart, Line, AreaChart, Area, Legend, PieChart, Pie, Cell
+  BarChart as RechartsBarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
+  AreaChart, Area, Legend, PieChart as RechartsPieChart, Pie, Cell
 } from 'recharts';
-import { Download, FileText, Calendar, Filter, ArrowUpRight } from 'lucide-react';
+import { 
+  Download, 
+  FileText, 
+  Calendar, 
+  Filter, 
+  BarChart3 as BarIcon, 
+  PieChart as PieIcon 
+} from 'lucide-react';
 import { useApp } from '../AppContext';
 
 const formatCurrency = (val: number) => `Rs. ${val.toLocaleString('en-IN')}`;
@@ -49,14 +56,14 @@ export const Reports: React.FC = () => {
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
           <div className="flex justify-between items-center mb-6">
             <h3 className="font-bold text-slate-900 flex items-center gap-2">
-              <BarChart size={18} className="text-blue-600" />
+              <BarIcon size={18} className="text-blue-600" />
               Project Financial Health
             </h3>
             <button className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded uppercase tracking-wider">Full Details</button>
           </div>
           <div className="h-80">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={financialData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+              <RechartsBarChart data={financialData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 10}} />
                 <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 10}} />
@@ -67,7 +74,7 @@ export const Reports: React.FC = () => {
                 <Legend verticalAlign="top" align="right" iconType="circle" wrapperStyle={{paddingBottom: 20, fontSize: 11, fontWeight: 600}} />
                 <Bar name="Total Budget" dataKey="budget" fill="#e2e8f0" radius={[4, 4, 0, 0]} barSize={24} />
                 <Bar name="Actual Spent" dataKey="spent" fill="#3b82f6" radius={[4, 4, 0, 0]} barSize={24} />
-              </BarChart>
+              </RechartsBarChart>
             </ResponsiveContainer>
           </div>
         </div>
@@ -76,13 +83,13 @@ export const Reports: React.FC = () => {
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
           <div className="flex justify-between items-center mb-6">
             <h3 className="font-bold text-slate-900 flex items-center gap-2">
-              <PieChart size={18} className="text-emerald-600" />
+              <PieIcon size={18} className="text-emerald-600" />
               Stock Asset Distribution
             </h3>
           </div>
           <div className="h-80">
             <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
+              <RechartsPieChart>
                 <Pie
                   data={materialData}
                   cx="50%"
@@ -98,7 +105,7 @@ export const Reports: React.FC = () => {
                 </Pie>
                 <Tooltip formatter={(val: number) => formatCurrency(val)} />
                 <Legend layout="vertical" align="right" verticalAlign="middle" iconType="circle" wrapperStyle={{fontSize: 10}} />
-              </PieChart>
+              </RechartsPieChart>
             </ResponsiveContainer>
           </div>
         </div>
