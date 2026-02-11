@@ -2,6 +2,9 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
+// Fix for TS2580: Cannot find name 'process' in the Node environment during config execution
+declare var process: any;
+
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
