@@ -14,7 +14,9 @@ import {
   TrendingDown,
   Calendar,
   Plus,
-  DollarSign
+  DollarSign,
+  Briefcase,
+  FileText
 } from 'lucide-react';
 import { 
   AreaChart, 
@@ -27,28 +29,40 @@ import {
   Legend 
 } from 'recharts';
 import { useApp } from '../AppContext';
-import { Material, StockHistoryEntry, MaterialUnit } from '../types';
+import { Material, StockHistoryEntry, MaterialUnit, Expense } from '../types';
+
+const formatCurrency = (val: number) => `Rs. ${val.toLocaleString('en-IN')}`;
 
 export const Inventory: React.FC = () => {
-  const { materials, updateMaterial, addMaterial } = useApp();
+  const { materials, projects, updateMaterial, addMaterial, addExpense } = useApp();
   const [searchTerm, setSearchTerm] = useState('');
   const [unitFilter, setUnitFilter] = useState('All');
   const [statusFilter, setStatusFilter] = useState('All');
   const [historyMaterial, setHistoryMaterial] = useState<Material | null>(null);
   const [showPurchaseModal, setShowPurchaseModal] = useState(false);
+  const [showUsageModal, setShowUsageModal] = useState(false);
 
-  // Form State
-  const [formData, setFormData] = useState({
-    materialId: '', // empty for new material
+  // Form State for Purchase
+  const [purchaseData, setPurchaseData] = useState({
+    materialId: '',
     newName: '',
     unit: 'Bag' as MaterialUnit,
     costPerUnit: '',
     quantity: '',
     date: new Date().toISOString().split('T')[0],
+    projectId: '', // Optional for purchase
     note: ''
   });
 
-  // Extract unique units for the filter dropdown
+  // Form State for Usage
+  const [usageData, setUsageData] = useState({
+    materialId: '',
+    projectId: '', // Mandatory for usage
+    quantity: '',
+    date: new Date().toISOString().split('T')[0],
+    note: ''
+  });
+
   const uniqueUnits = useMemo(() => {
     const units = materials.map(m => m.unit);
     return ['All', ...Array.from(new Set(units))];
@@ -73,9 +87,8 @@ export const Inventory: React.FC = () => {
   }, [materials, searchTerm, unitFilter, statusFilter]);
 
   const lowStockCount = materials.filter(mat => {
-    const stockLevel = mat.totalPurchased > 0 
-      ? ((mat.totalPurchased - mat.totalUsed) / mat.totalPurchased) * 100 
-      : 0;
+    const remaining = mat.totalPurchased - mat.totalUsed;
+    const stockLevel = mat.totalPurchased > 0 ? (remaining / mat.totalPurchased) * 100 : 0;
     return stockLevel < 20;
   }).length;
 
@@ -84,14 +97,13 @@ export const Inventory: React.FC = () => {
     return sum + (remaining * mat.costPerUnit);
   }, 0);
 
-  // Prepare data for the history chart
   const historyChartData = useMemo(() => {
     if (!historyMaterial || !historyMaterial.history) return [];
     
     let cumulativePurchased = 0;
     let cumulativeUsed = 0;
     
-    return historyMaterial.history
+    return [...historyMaterial.history]
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
       .map(entry => {
         if (entry.type === 'Purchase') cumulativePurchased += entry.quantity;
@@ -108,50 +120,110 @@ export const Inventory: React.FC = () => {
 
   const handlePurchaseSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const qty = parseFloat(formData.quantity);
-    const cost = parseFloat(formData.costPerUnit);
+    const qty = parseFloat(purchaseData.quantity);
+    const cost = parseFloat(purchaseData.costPerUnit);
     
     if (isNaN(qty) || qty <= 0) return;
 
     const newHistoryEntry: StockHistoryEntry = {
-      id: Date.now().toString(),
-      date: formData.date,
+      id: 'h' + Date.now(),
+      date: purchaseData.date,
       type: 'Purchase',
       quantity: qty,
-      note: formData.note || 'Manual Stock Update'
+      note: purchaseData.note || 'Inventory Purchase'
     };
 
-    if (formData.materialId && formData.materialId !== 'new') {
-      const existing = materials.find(m => m.id === formData.materialId);
+    let targetMaterial: Material;
+
+    if (purchaseData.materialId && purchaseData.materialId !== 'new') {
+      const existing = materials.find(m => m.id === purchaseData.materialId);
       if (existing) {
-        updateMaterial({
+        targetMaterial = {
           ...existing,
           totalPurchased: existing.totalPurchased + qty,
           costPerUnit: cost || existing.costPerUnit,
           history: [...(existing.history || []), newHistoryEntry]
-        });
-      }
+        };
+        updateMaterial(targetMaterial);
+      } else return;
     } else {
-      addMaterial({
+      targetMaterial = {
         id: 'm' + Date.now(),
-        name: formData.newName,
-        unit: formData.unit,
+        name: purchaseData.newName,
+        unit: purchaseData.unit,
         costPerUnit: cost,
         totalPurchased: qty,
         totalUsed: 0,
         history: [newHistoryEntry]
-      });
+      };
+      addMaterial(targetMaterial);
+    }
+
+    if (purchaseData.projectId) {
+      const expense: Expense = {
+        id: 'exp' + Date.now(),
+        date: purchaseData.date,
+        projectId: purchaseData.projectId,
+        materialId: targetMaterial.id,
+        amount: qty * (cost || targetMaterial.costPerUnit),
+        paymentMethod: 'Bank',
+        notes: `Material Purchase: ${targetMaterial.name} (${qty} ${targetMaterial.unit}) - ${purchaseData.note}`,
+        category: 'Material'
+      };
+      addExpense(expense);
     }
 
     setShowPurchaseModal(false);
-    setFormData({
-      materialId: '',
-      newName: '',
-      unit: 'Bag',
-      costPerUnit: '',
-      quantity: '',
-      date: new Date().toISOString().split('T')[0],
-      note: ''
+    setPurchaseData({
+      materialId: '', newName: '', unit: 'Bag', costPerUnit: '', quantity: '', date: new Date().toISOString().split('T')[0], projectId: '', note: ''
+    });
+  };
+
+  const handleUsageSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const qty = parseFloat(usageData.quantity);
+    if (isNaN(qty) || qty <= 0) return;
+
+    const existing = materials.find(m => m.id === usageData.materialId);
+    if (!existing) return;
+
+    const remaining = existing.totalPurchased - existing.totalUsed;
+    if (qty > remaining) {
+      alert("Error: Usage quantity exceeds available stock!");
+      return;
+    }
+
+    const newHistoryEntry: StockHistoryEntry = {
+      id: 'h' + Date.now(),
+      date: usageData.date,
+      type: 'Usage',
+      quantity: qty,
+      note: usageData.note || 'Site Consumption'
+    };
+
+    updateMaterial({
+      ...existing,
+      totalUsed: existing.totalUsed + qty,
+      history: [...(existing.history || []), newHistoryEntry]
+    });
+
+    if (usageData.projectId) {
+      const expense: Expense = {
+        id: 'exp' + Date.now(),
+        date: usageData.date,
+        projectId: usageData.projectId,
+        materialId: existing.id,
+        amount: qty * existing.costPerUnit,
+        paymentMethod: 'Cash',
+        notes: `Material Usage: ${existing.name} (${qty} ${existing.unit}) - ${usageData.note}`,
+        category: 'Material'
+      };
+      addExpense(expense);
+    }
+
+    setShowUsageModal(false);
+    setUsageData({
+      materialId: '', projectId: '', quantity: '', date: new Date().toISOString().split('T')[0], note: ''
     });
   };
 
@@ -162,13 +234,22 @@ export const Inventory: React.FC = () => {
           <h2 className="text-2xl font-bold text-slate-900">Inventory</h2>
           <p className="text-slate-500 text-sm">Real-time material tracking and consumption.</p>
         </div>
-        <button 
-          onClick={() => setShowPurchaseModal(true)}
-          className="w-full sm:w-auto bg-slate-900 text-white px-5 py-2.5 rounded-xl font-semibold flex items-center justify-center gap-2 hover:bg-slate-800 transition-all shadow-md active:scale-95"
-        >
-          <ShoppingCart size={18} />
-          Record Purchase
-        </button>
+        <div className="flex w-full sm:w-auto gap-3">
+          <button 
+            onClick={() => setShowPurchaseModal(true)}
+            className="flex-1 sm:flex-none bg-slate-900 text-white px-5 py-2.5 rounded-xl font-semibold flex items-center justify-center gap-2 hover:bg-slate-800 transition-all shadow-md active:scale-95"
+          >
+            <Plus size={18} />
+            Purchase
+          </button>
+          <button 
+            onClick={() => setShowUsageModal(true)}
+            className="flex-1 sm:flex-none bg-blue-600 text-white px-5 py-2.5 rounded-xl font-semibold flex items-center justify-center gap-2 hover:bg-blue-700 transition-all shadow-lg shadow-blue-200 active:scale-95"
+          >
+            <TrendingDown size={18} />
+            Usage
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6">
@@ -196,13 +277,12 @@ export const Inventory: React.FC = () => {
           </div>
           <div>
             <h3 className="text-slate-400 text-[10px] font-bold uppercase tracking-widest">Asset Value</h3>
-            <p className="text-xl font-bold text-slate-900">${totalAssetValue.toLocaleString()}</p>
+            <p className="text-xl font-bold text-slate-900">{formatCurrency(totalAssetValue)}</p>
           </div>
         </div>
       </div>
 
       <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-        {/* Search and Filters Bar */}
         <div className="p-4 border-b border-slate-100 bg-slate-50/30 flex flex-col lg:flex-row gap-3">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
@@ -250,10 +330,8 @@ export const Inventory: React.FC = () => {
             <tbody className="divide-y divide-slate-100">
               {filteredMaterials.length > 0 ? (
                 filteredMaterials.map((mat) => {
-                  const stockLevel = mat.totalPurchased > 0 
-                    ? ((mat.totalPurchased - mat.totalUsed) / mat.totalPurchased) * 100 
-                    : 0;
                   const remaining = mat.totalPurchased - mat.totalUsed;
+                  const stockLevel = mat.totalPurchased > 0 ? (remaining / mat.totalPurchased) * 100 : 0;
                   const isLow = stockLevel < 20;
                   
                   return (
@@ -286,8 +364,8 @@ export const Inventory: React.FC = () => {
                         </div>
                       </td>
                       <td className="px-6 py-4 text-right">
-                        <p className="text-sm font-bold text-slate-900">${(remaining * mat.costPerUnit).toLocaleString()}</p>
-                        <p className="text-[10px] text-slate-400 font-medium">${mat.costPerUnit}/unit</p>
+                        <p className="text-sm font-bold text-slate-900">{formatCurrency(remaining * mat.costPerUnit)}</p>
+                        <p className="text-[10px] text-slate-400 font-medium">{formatCurrency(mat.costPerUnit)}/unit</p>
                       </td>
                       <td className="px-6 py-4 text-center">
                         <button 
@@ -320,34 +398,29 @@ export const Inventory: React.FC = () => {
       {showPurchaseModal && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
           <div className="bg-white rounded-3xl w-full max-w-xl shadow-2xl overflow-hidden flex flex-col">
-            <div className="p-6 lg:p-8 border-b border-slate-100 flex justify-between items-center shrink-0">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center shrink-0">
               <div className="flex items-center gap-4">
                 <div className="p-3 bg-slate-900 text-white rounded-2xl">
                   <ShoppingCart size={24} />
                 </div>
                 <div>
-                  <h2 className="text-xl lg:text-2xl font-bold text-slate-900">Record Purchase</h2>
-                  <p className="text-sm text-slate-500">Add new stock to inventory</p>
+                  <h2 className="text-xl font-bold text-slate-900">Purchase Order</h2>
+                  <p className="text-sm text-slate-500">Record incoming stock</p>
                 </div>
               </div>
-              <button 
-                onClick={() => setShowPurchaseModal(false)} 
-                className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-all"
-              >
-                <X size={24} />
-              </button>
+              <button onClick={() => setShowPurchaseModal(false)} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl"><X size={24} /></button>
             </div>
 
-            <form onSubmit={handlePurchaseSubmit} className="flex-1 overflow-y-auto p-6 lg:p-8 space-y-6 no-scrollbar">
+            <form onSubmit={handlePurchaseSubmit} className="flex-1 overflow-y-auto p-6 space-y-5 no-scrollbar">
               <div className="space-y-4">
                 <label className="text-sm font-bold text-slate-700 block">Select Material</label>
                 <select 
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-                  value={formData.materialId}
+                  value={purchaseData.materialId}
                   onChange={(e) => {
                     const id = e.target.value;
                     const mat = materials.find(m => m.id === id);
-                    setFormData(prev => ({
+                    setPurchaseData(prev => ({
                       ...prev,
                       materialId: id,
                       unit: mat ? mat.unit : prev.unit,
@@ -357,14 +430,14 @@ export const Inventory: React.FC = () => {
                   required
                 >
                   <option value="">Choose Existing Material...</option>
-                  <option value="new">+ Add New Material</option>
+                  <option value="new">+ Add New Material Category</option>
                   {materials.map(m => (
                     <option key={m.id} value={m.id}>{m.name}</option>
                   ))}
                 </select>
               </div>
 
-              {formData.materialId === 'new' && (
+              {purchaseData.materialId === 'new' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2 duration-300">
                   <div className="space-y-2">
                     <label className="text-sm font-bold text-slate-700 block">Material Name</label>
@@ -372,8 +445,8 @@ export const Inventory: React.FC = () => {
                       type="text" 
                       placeholder="e.g., Red Bricks"
                       className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
-                      value={formData.newName}
-                      onChange={(e) => setFormData(prev => ({ ...prev, newName: e.target.value }))}
+                      value={purchaseData.newName}
+                      onChange={(e) => setPurchaseData(prev => ({ ...prev, newName: e.target.value }))}
                       required
                     />
                   </div>
@@ -381,8 +454,8 @@ export const Inventory: React.FC = () => {
                     <label className="text-sm font-bold text-slate-700 block">Unit</label>
                     <select 
                       className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
-                      value={formData.unit}
-                      onChange={(e) => setFormData(prev => ({ ...prev, unit: e.target.value as MaterialUnit }))}
+                      value={purchaseData.unit}
+                      onChange={(e) => setPurchaseData(prev => ({ ...prev, unit: e.target.value as MaterialUnit }))}
                     >
                       <option>Bag</option>
                       <option>Ton</option>
@@ -397,83 +470,129 @@ export const Inventory: React.FC = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <label className="text-sm font-bold text-slate-700 block">Quantity</label>
-                  <input 
-                    type="number" 
-                    placeholder="0.00"
-                    step="0.01"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
-                    value={formData.quantity}
-                    onChange={(e) => setFormData(prev => ({ ...prev, quantity: e.target.value }))}
-                    required
-                  />
+                  <input type="number" step="0.01" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500" value={purchaseData.quantity} onChange={(e) => setPurchaseData(prev => ({ ...prev, quantity: e.target.value }))} required />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-bold text-slate-700 block">Cost Per Unit ($)</label>
+                  <label className="text-sm font-bold text-slate-700 block">Cost Per Unit (Rs.)</label>
                   <div className="relative">
-                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                    <input 
-                      type="number" 
-                      placeholder="0.00"
-                      step="0.01"
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
-                      value={formData.costPerUnit}
-                      onChange={(e) => setFormData(prev => ({ ...prev, costPerUnit: e.target.value }))}
-                      required
-                    />
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">₹</span>
+                    <input type="number" step="0.01" className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-3 outline-none focus:ring-2 focus:ring-blue-500" value={purchaseData.costPerUnit} onChange={(e) => setPurchaseData(prev => ({ ...prev, costPerUnit: e.target.value }))} required />
                   </div>
                 </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-bold text-slate-700 block flex items-center gap-2">
+                  <Briefcase size={14} className="text-blue-600" />
+                  Link to Project (Optional)
+                </label>
+                <select 
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
+                  value={purchaseData.projectId}
+                  onChange={(e) => setPurchaseData(prev => ({ ...prev, projectId: e.target.value }))}
+                >
+                  <option value="">General Stock (No Project)</option>
+                  {projects.map(p => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-slate-400">Linking to a project will automatically create a Material Expense for that project.</p>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <label className="text-sm font-bold text-slate-700 block">Date of Purchase</label>
-                  <div className="relative">
-                    <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                    <input 
-                      type="date" 
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
-                      value={formData.date}
-                      onChange={(e) => setFormData(prev => ({ ...prev, date: e.target.value }))}
-                      required
-                    />
-                  </div>
+                  <label className="text-sm font-bold text-slate-700 block">Date</label>
+                  <input type="date" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500" value={purchaseData.date} onChange={(e) => setPurchaseData(prev => ({ ...prev, date: e.target.value }))} required />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-bold text-slate-700 block">Purchase Note (Optional)</label>
-                  <input 
-                    type="text" 
-                    placeholder="Ref # or Project purpose"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
-                    value={formData.note}
-                    onChange={(e) => setFormData(prev => ({ ...prev, note: e.target.value }))}
-                  />
+                  <label className="text-sm font-bold text-slate-700 block">Note</label>
+                  <input type="text" placeholder="e.g. Inv #1234" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500" value={purchaseData.note} onChange={(e) => setPurchaseData(prev => ({ ...prev, note: e.target.value }))} />
                 </div>
               </div>
 
-              <div className="bg-blue-50 p-4 rounded-2xl flex items-start gap-3">
-                <TrendingUp className="text-blue-600 mt-1" size={18} />
-                <div className="text-xs text-blue-700 leading-relaxed">
-                  <strong>Financial Impact:</strong> This entry will increase total inventory value by 
-                  <span className="font-bold"> ${((parseFloat(formData.quantity) || 0) * (parseFloat(formData.costPerUnit) || 0)).toLocaleString()}</span>. 
-                  This record will appear in the material's transaction history.
+              <div className="flex gap-4 pt-4">
+                <button type="button" onClick={() => setShowPurchaseModal(false)} className="flex-1 bg-slate-100 text-slate-600 font-bold py-3.5 rounded-2xl hover:bg-slate-200 transition-colors">Cancel</button>
+                <button type="submit" className="flex-1 bg-slate-900 text-white font-bold py-3.5 rounded-2xl hover:bg-slate-800 shadow-lg transition-colors">Record Stock</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Record Usage Modal */}
+      {showUsageModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl w-full max-w-xl shadow-2xl overflow-hidden flex flex-col">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center shrink-0">
+              <div className="flex items-center gap-4">
+                <div className="p-3 bg-blue-600 text-white rounded-2xl">
+                  <TrendingDown size={24} />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-slate-900">Record Usage</h2>
+                  <p className="text-sm text-slate-500">Log material site consumption</p>
+                </div>
+              </div>
+              <button onClick={() => setShowUsageModal(false)} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl"><X size={24} /></button>
+            </div>
+
+            <form onSubmit={handleUsageSubmit} className="flex-1 overflow-y-auto p-6 space-y-5 no-scrollbar">
+              <div className="space-y-2">
+                <label className="text-sm font-bold text-slate-700 block">Material</label>
+                <select 
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
+                  value={usageData.materialId}
+                  onChange={(e) => setUsageData(prev => ({ ...prev, materialId: e.target.value }))}
+                  required
+                >
+                  <option value="">Select Material from Stock...</option>
+                  {materials.map(m => (
+                    <option key={m.id} value={m.id}>{m.name} ({m.totalPurchased - m.totalUsed} {m.unit} available)</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-bold text-slate-700 block">Linked Project</label>
+                <select 
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
+                  value={usageData.projectId}
+                  onChange={(e) => setUsageData(prev => ({ ...prev, projectId: e.target.value }))}
+                  required
+                >
+                  <option value="">Choose Site/Project...</option>
+                  {projects.map(p => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-slate-700 block">Quantity Used</label>
+                  <input type="number" step="0.01" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500" value={usageData.quantity} onChange={(e) => setUsageData(prev => ({ ...prev, quantity: e.target.value }))} required />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-slate-700 block">Date of Usage</label>
+                  <input type="date" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500" value={usageData.date} onChange={(e) => setUsageData(prev => ({ ...prev, date: e.target.value }))} required />
                 </div>
               </div>
 
-              <div className="flex gap-4 pt-4 shrink-0">
-                <button 
-                  type="button"
-                  onClick={() => setShowPurchaseModal(false)}
-                  className="flex-1 bg-slate-100 text-slate-600 font-bold py-4 rounded-2xl hover:bg-slate-200 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button 
-                  type="submit"
-                  className="flex-1 bg-blue-600 text-white font-bold py-4 rounded-2xl hover:bg-blue-700 shadow-lg shadow-blue-200 transition-colors flex items-center justify-center gap-2"
-                >
-                  <Plus size={20} />
-                  Record Stock
-                </button>
+              <div className="space-y-2">
+                <label className="text-sm font-bold text-slate-700 block">Usage Details / Note</label>
+                <input type="text" placeholder="e.g. Floor 2 Slab Casting" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500" value={usageData.note} onChange={(e) => setUsageData(prev => ({ ...prev, note: e.target.value }))} />
+              </div>
+
+              <div className="bg-amber-50 p-4 rounded-2xl flex items-start gap-3 border border-amber-100">
+                <FileText className="text-amber-600 mt-1" size={18} />
+                <div className="text-xs text-amber-700 leading-relaxed">
+                  <strong>Site Cost Allocation:</strong> This usage will be recorded as a project expense. Ensure the quantity is accurate as it affects both inventory levels and project profitability reports.
+                </div>
+              </div>
+
+              <div className="flex gap-4 pt-4">
+                <button type="button" onClick={() => setShowUsageModal(false)} className="flex-1 bg-slate-100 text-slate-600 font-bold py-3.5 rounded-2xl hover:bg-slate-200 transition-colors">Cancel</button>
+                <button type="submit" className="flex-1 bg-blue-600 text-white font-bold py-3.5 rounded-2xl hover:bg-blue-700 shadow-lg shadow-blue-200 transition-colors">Submit Usage</button>
               </div>
             </form>
           </div>
@@ -494,12 +613,7 @@ export const Inventory: React.FC = () => {
                   <p className="text-sm text-slate-500">Inventory movement history</p>
                 </div>
               </div>
-              <button 
-                onClick={() => setHistoryMaterial(null)} 
-                className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-all"
-              >
-                <X size={24} />
-              </button>
+              <button onClick={() => setHistoryMaterial(null)} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-all"><X size={24} /></button>
             </div>
 
             <div className="flex-1 overflow-y-auto p-6 lg:p-8 no-scrollbar">
@@ -531,12 +645,11 @@ export const Inventory: React.FC = () => {
                     <TrendingUp size={12} /> Asset Value
                   </p>
                   <p className="text-2xl font-bold text-slate-900">
-                    ${((historyMaterial.totalPurchased - historyMaterial.totalUsed) * historyMaterial.costPerUnit).toLocaleString()}
+                    {formatCurrency((historyMaterial.totalPurchased - historyMaterial.totalUsed) * historyMaterial.costPerUnit)}
                   </p>
                 </div>
               </div>
 
-              {/* Chart Section */}
               <div className="bg-white rounded-2xl border border-slate-100 p-6 mb-8">
                 <h3 className="text-sm font-bold text-slate-900 mb-6 flex items-center gap-2">
                   <TrendingUp size={16} className="text-blue-600" />
@@ -556,55 +669,18 @@ export const Inventory: React.FC = () => {
                         </linearGradient>
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                      <XAxis 
-                        dataKey="date" 
-                        axisLine={false} 
-                        tickLine={false} 
-                        tick={{fill: '#94a3b8', fontSize: 11}} 
-                        padding={{ left: 20, right: 20 }}
-                      />
-                      <YAxis 
-                        axisLine={false} 
-                        tickLine={false} 
-                        tick={{fill: '#94a3b8', fontSize: 11}} 
-                      />
-                      <Tooltip 
-                        contentStyle={{borderRadius: '16px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)'}}
-                      />
+                      <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 11}} padding={{ left: 20, right: 20 }} />
+                      <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 11}} />
+                      <Tooltip contentStyle={{borderRadius: '16px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)'}} />
                       <Legend verticalAlign="top" height={36} iconType="circle" wrapperStyle={{ fontSize: '12px', fontWeight: 600 }} />
-                      <Area 
-                        name="Purchased" 
-                        type="monotone" 
-                        dataKey="purchased" 
-                        stroke="#10b981" 
-                        strokeWidth={3}
-                        fillOpacity={1} 
-                        fill="url(#colorPurchased)" 
-                      />
-                      <Area 
-                        name="Used" 
-                        type="monotone" 
-                        dataKey="used" 
-                        stroke="#ef4444" 
-                        strokeWidth={3}
-                        fillOpacity={1} 
-                        fill="url(#colorUsed)" 
-                      />
-                      <Area 
-                        name="Current Stock" 
-                        type="monotone" 
-                        dataKey="stock" 
-                        stroke="#3b82f6" 
-                        strokeWidth={2}
-                        strokeDasharray="5 5"
-                        fill="transparent"
-                      />
+                      <Area name="Purchased" type="monotone" dataKey="purchased" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorPurchased)" />
+                      <Area name="Used" type="monotone" dataKey="used" stroke="#ef4444" strokeWidth={3} fillOpacity={1} fill="url(#colorUsed)" />
+                      <Area name="Current Stock" type="monotone" dataKey="stock" stroke="#3b82f6" strokeWidth={2} strokeDasharray="5 5" fill="transparent" />
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
               </div>
 
-              {/* Transaction Table */}
               <div className="space-y-4">
                 <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
                   <Calendar size={16} className="text-slate-400" />
@@ -623,23 +699,15 @@ export const Inventory: React.FC = () => {
                     <tbody className="divide-y divide-slate-50">
                       {historyMaterial.history?.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map((entry) => (
                         <tr key={entry.id} className="hover:bg-slate-50 transition-colors">
-                          <td className="px-6 py-4 text-xs font-semibold text-slate-600">
-                            {new Date(entry.date).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
-                          </td>
+                          <td className="px-6 py-4 text-xs font-semibold text-slate-600">{new Date(entry.date).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}</td>
                           <td className="px-6 py-4">
-                            <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-tight ${
-                              entry.type === 'Purchase' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
-                            }`}>
+                            <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-tight ${entry.type === 'Purchase' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
                               {entry.type === 'Purchase' ? <ArrowUpRight size={10} /> : <ArrowDownRight size={10} />}
                               {entry.type}
                             </span>
                           </td>
-                          <td className="px-6 py-4 text-sm font-bold text-slate-900">
-                            {entry.type === 'Purchase' ? '+' : '-'}{entry.quantity.toLocaleString()} {historyMaterial.unit}
-                          </td>
-                          <td className="px-6 py-4 text-xs text-slate-500 font-medium">
-                            {entry.note || 'No description'}
-                          </td>
+                          <td className="px-6 py-4 text-sm font-bold text-slate-900">{entry.type === 'Purchase' ? '+' : '-'}{entry.quantity.toLocaleString()} {historyMaterial.unit}</td>
+                          <td className="px-6 py-4 text-xs text-slate-500 font-medium">{entry.note || 'No description'}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -649,12 +717,7 @@ export const Inventory: React.FC = () => {
             </div>
 
             <div className="p-6 border-t border-slate-100 bg-slate-50/50 shrink-0 text-right">
-              <button 
-                onClick={() => setHistoryMaterial(null)}
-                className="bg-slate-900 text-white px-6 py-2.5 rounded-xl font-bold hover:bg-slate-800 transition-all shadow-md active:scale-95"
-              >
-                Done
-              </button>
+              <button onClick={() => setHistoryMaterial(null)} className="bg-slate-900 text-white px-6 py-2.5 rounded-xl font-bold hover:bg-slate-800 transition-all shadow-md active:scale-95">Done</button>
             </div>
           </div>
         </div>

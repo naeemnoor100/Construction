@@ -23,6 +23,8 @@ import {
 } from 'recharts';
 import { useApp } from '../AppContext';
 
+const formatCurrency = (val: number) => `Rs. ${val.toLocaleString('en-IN')}`;
+
 const StatCard: React.FC<{ 
   title: string; 
   value: string; 
@@ -34,7 +36,6 @@ const StatCard: React.FC<{
   <div className="bg-white p-5 lg:p-6 rounded-2xl border border-slate-200 shadow-sm transition-all hover:shadow-md">
     <div className="flex justify-between items-start mb-4">
       <div className={`${color} p-2.5 rounded-xl text-white shadow-sm`}>
-        {/* Fix: Check if icon is a valid element and cast to React.ReactElement<any> to allow 'size' prop */}
         {React.isValidElement(icon) ? React.cloneElement(icon as React.ReactElement<any>, { size: 20 }) : icon}
       </div>
       <div className={`flex items-center gap-1 text-[10px] font-bold uppercase tracking-tight ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
@@ -95,7 +96,7 @@ export const Dashboard: React.FC = () => {
         />
         <StatCard 
           title="Total Expenses" 
-          value={`$${totalExpenses.toLocaleString()}`} 
+          value={formatCurrency(totalExpenses)} 
           change="+12.5% vs mo" 
           isPositive={false} 
           icon={<TrendingDown />} 
@@ -103,7 +104,7 @@ export const Dashboard: React.FC = () => {
         />
         <StatCard 
           title="Vendor Payables" 
-          value={`$${vendorPayables.toLocaleString()}`} 
+          value={formatCurrency(vendorPayables)} 
           change="-5% from wk" 
           isPositive={true} 
           icon={<Users />} 
@@ -111,7 +112,7 @@ export const Dashboard: React.FC = () => {
         />
         <StatCard 
           title="Stock Asset Value" 
-          value={`$${(materials.length * 15000).toLocaleString()}`} 
+          value={formatCurrency(materials.reduce((acc, m) => acc + ((m.totalPurchased - m.totalUsed) * m.costPerUnit), 0))} 
           change="Stable" 
           isPositive={true} 
           icon={<Layers />} 
@@ -136,6 +137,7 @@ export const Dashboard: React.FC = () => {
                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 11}} />
                 <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 11}} />
                 <Tooltip 
+                  formatter={(value: number) => [`Rs. ${value.toLocaleString('en-IN')}`, '']}
                   contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', fontSize: '12px'}}
                   cursor={{fill: '#f8fafc'}}
                 />
@@ -213,9 +215,11 @@ export const Dashboard: React.FC = () => {
                       </div>
                     </div>
                   </td>
-                  <td className="px-5 py-4 text-xs text-slate-600 font-medium">Skyline Res.</td>
+                  <td className="px-5 py-4 text-xs text-slate-600 font-medium">
+                    {projects.find(p => p.id === exp.projectId)?.name || 'Unknown'}
+                  </td>
                   <td className="px-5 py-4 text-xs text-slate-500">{new Date(exp.date).toLocaleDateString(undefined, {month: 'short', day: 'numeric'})}</td>
-                  <td className="px-5 py-4 text-xs font-bold text-slate-900">${exp.amount.toLocaleString()}</td>
+                  <td className="px-5 py-4 text-xs font-bold text-slate-900">{formatCurrency(exp.amount)}</td>
                   <td className="px-5 py-4">
                     <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700">
                       Paid

@@ -11,6 +11,8 @@ import {
 } from 'lucide-react';
 import { useApp } from '../AppContext';
 
+const formatCurrency = (val: number) => `Rs. ${val.toLocaleString('en-IN')}`;
+
 export const VendorList: React.FC = () => {
   const { vendors } = useApp();
 
@@ -83,7 +85,7 @@ export const VendorList: React.FC = () => {
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-1.5 font-bold text-slate-900">
                       <CreditCard size={14} className="text-slate-400" />
-                      ${vendor.balance.toLocaleString()}
+                      {formatCurrency(vendor.balance)}
                     </div>
                   </td>
                   <td className="px-6 py-4">

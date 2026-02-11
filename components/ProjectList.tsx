@@ -12,6 +12,8 @@ import {
 import { useApp } from '../AppContext';
 import { ProjectStatus } from '../types';
 
+const formatCurrency = (val: number) => `Rs. ${val.toLocaleString('en-IN')}`;
+
 export const ProjectList: React.FC = () => {
   const { projects, expenses } = useApp();
   const [filter, setFilter] = useState<ProjectStatus | 'All'>('All');
@@ -103,7 +105,7 @@ export const ProjectList: React.FC = () => {
                   <div className="grid grid-cols-2 gap-3">
                     <div className="bg-slate-50 p-3 rounded-xl">
                       <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">Budget</p>
-                      <p className="text-sm font-bold text-slate-900">${(project.budget / 1000).toLocaleString()}k</p>
+                      <p className="text-sm font-bold text-slate-900">{formatCurrency(project.budget)}</p>
                     </div>
                     <div className="bg-slate-50 p-3 rounded-xl">
                       <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">Start Date</p>

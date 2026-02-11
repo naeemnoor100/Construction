@@ -12,6 +12,8 @@ import {
 } from 'lucide-react';
 import { useApp } from '../AppContext';
 
+const formatCurrency = (val: number) => `Rs. ${val.toLocaleString('en-IN')}`;
+
 export const ExpenseTracker: React.FC = () => {
   const { expenses, projects, vendors } = useApp();
   const [showModal, setShowModal] = useState(false);
@@ -123,7 +125,7 @@ export const ExpenseTracker: React.FC = () => {
                         </div>
                       </td>
                       <td className="px-6 py-4 font-bold text-slate-900">
-                        ${exp.amount.toLocaleString()}
+                        {formatCurrency(exp.amount)}
                       </td>
                       <td className="px-6 py-4">
                         <button className="p-2 text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100">
@@ -176,9 +178,9 @@ export const ExpenseTracker: React.FC = () => {
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-bold text-slate-700">Amount</label>
+                  <label className="text-sm font-bold text-slate-700">Amount (Rs.)</label>
                   <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">$</span>
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">₹</span>
                     <input type="number" placeholder="0.00" className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-8 pr-4 py-3 outline-none focus:ring-2 focus:ring-blue-500" />
                   </div>
                 </div>
