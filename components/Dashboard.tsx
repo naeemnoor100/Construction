@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   Briefcase, 
   TrendingDown, 
@@ -7,7 +7,11 @@ import {
   Layers, 
   ArrowUpRight, 
   ArrowDownRight,
-  Plus
+  Plus,
+  X,
+  MapPin,
+  Calendar,
+  DollarSign
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -22,6 +26,7 @@ import {
   Cell 
 } from 'recharts';
 import { useApp } from '../AppContext';
+import { Project } from '../types';
 
 const formatCurrency = (val: number) => `Rs. ${val.toLocaleString('en-IN')}`;
 
@@ -49,7 +54,16 @@ const StatCard: React.FC<{
 );
 
 export const Dashboard: React.FC = () => {
-  const { projects, expenses, vendors, materials } = useApp();
+  const { projects, expenses, vendors, materials, addProject } = useApp();
+  const [showModal, setShowModal] = useState(false);
+  const [formData, setFormData] = useState({
+    name: '',
+    client: '',
+    location: '',
+    budget: '',
+    startDate: new Date().toISOString().split('T')[0],
+    endDate: ''
+  });
 
   const totalBudget = projects.reduce((sum, p) => sum + p.budget, 0);
   const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
@@ -71,6 +85,24 @@ export const Dashboard: React.FC = () => {
   ];
   const COLORS = ['#3b82f6', '#10b981', '#f59e0b'];
 
+  const handleCreateProject = (e: React.FormEvent) => {
+    e.preventDefault();
+    const newProject: Project = {
+      id: 'p' + Date.now(),
+      name: formData.name,
+      client: formData.client,
+      location: formData.location,
+      budget: parseFloat(formData.budget) || 0,
+      startDate: formData.startDate,
+      endDate: formData.endDate || formData.startDate,
+      status: 'Active',
+      description: ''
+    };
+    addProject(newProject);
+    setShowModal(false);
+    setFormData({ name: '', client: '', location: '', budget: '', startDate: new Date().toISOString().split('T')[0], endDate: '' });
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -78,7 +110,10 @@ export const Dashboard: React.FC = () => {
           <h2 className="text-2xl font-bold text-slate-900">Project Overview</h2>
           <p className="text-slate-500 text-sm">Welcome back! Here's a snapshot of your projects.</p>
         </div>
-        <button className="w-full sm:w-auto flex items-center justify-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-xl font-semibold shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all active:scale-95">
+        <button 
+          onClick={() => setShowModal(true)}
+          className="w-full sm:w-auto flex items-center justify-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-xl font-semibold shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all active:scale-95"
+        >
           <Plus size={20} />
           Create Project
         </button>
@@ -231,6 +266,130 @@ export const Dashboard: React.FC = () => {
           </table>
         </div>
       </div>
+
+      {/* Create Project Modal */}
+      {showModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl w-full max-w-xl shadow-2xl overflow-hidden flex flex-col">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center shrink-0">
+              <div className="flex items-center gap-4">
+                <div className="p-3 bg-blue-600 text-white rounded-2xl">
+                  <Briefcase size={24} />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-slate-900">New Project</h2>
+                  <p className="text-sm text-slate-500">Launch a new construction site</p>
+                </div>
+              </div>
+              <button onClick={() => setShowModal(false)} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl"><X size={24} /></button>
+            </div>
+
+            <form onSubmit={handleCreateProject} className="p-6 space-y-5">
+              <div className="space-y-2">
+                <label className="text-sm font-bold text-slate-700 block">Project Name</label>
+                <div className="relative">
+                  <Briefcase className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                  <input 
+                    type="text" 
+                    placeholder="e.g., Downtown Plaza"
+                    className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
+                    value={formData.name}
+                    onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-slate-700 block">Client Name</label>
+                  <input 
+                    type="text" 
+                    placeholder="Company or Person"
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
+                    value={formData.client}
+                    onChange={(e) => setFormData(prev => ({ ...prev, client: e.target.value }))}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-slate-700 block">Location</label>
+                  <div className="relative">
+                    <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                    <input 
+                      type="text" 
+                      placeholder="City, State"
+                      className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
+                      value={formData.location}
+                      onChange={(e) => setFormData(prev => ({ ...prev, location: e.target.value }))}
+                      required
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-bold text-slate-700 block">Total Budget (Rs.)</label>
+                <div className="relative">
+                  <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                  <input 
+                    type="number" 
+                    placeholder="0.00"
+                    className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
+                    value={formData.budget}
+                    onChange={(e) => setFormData(prev => ({ ...prev, budget: e.target.value }))}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-slate-700 block">Start Date</label>
+                  <div className="relative">
+                    <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                    <input 
+                      type="date" 
+                      className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
+                      value={formData.startDate}
+                      onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))}
+                      required
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-slate-700 block">Estimated End</label>
+                  <div className="relative">
+                    <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                    <input 
+                      type="date" 
+                      className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
+                      value={formData.endDate}
+                      onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-4 pt-4">
+                <button 
+                  type="button" 
+                  onClick={() => setShowModal(false)} 
+                  className="flex-1 bg-slate-100 text-slate-600 font-bold py-3.5 rounded-2xl hover:bg-slate-200 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit" 
+                  className="flex-1 bg-blue-600 text-white font-bold py-3.5 rounded-2xl hover:bg-blue-700 shadow-lg shadow-blue-200 transition-colors"
+                >
+                  Create Project
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
