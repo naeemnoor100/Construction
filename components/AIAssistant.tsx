@@ -4,6 +4,14 @@ import { Send, Bot, Sparkles, User, Loader2, Globe, ShieldAlert, Zap, Info } fro
 import { GoogleGenAI } from "@google/genai";
 import { useApp } from '../AppContext';
 
+// Fix for TS2580: Cannot find name 'process' in browser/Vercel build context
+declare var process: {
+  env: {
+    API_KEY: string;
+    [key: string]: string | undefined;
+  };
+};
+
 export const AIAssistant: React.FC = () => {
   const { projects, materials, expenses } = useApp();
   const [input, setInput] = useState('');
