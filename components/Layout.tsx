@@ -13,7 +13,8 @@ import {
   Menu,
   X,
   LogOut,
-  ChevronRight
+  ChevronRight,
+  Sparkles
 } from 'lucide-react';
 import { useApp } from '../AppContext';
 
@@ -27,19 +28,23 @@ const SidebarItem: React.FC<{
   icon: React.ReactNode; 
   label: string; 
   isActive: boolean; 
-  onClick: () => void 
-}> = ({ icon, label, isActive, onClick }) => (
+  onClick: () => void;
+  isSpecial?: boolean;
+}> = ({ icon, label, isActive, onClick, isSpecial }) => (
   <button
     onClick={onClick}
     className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 ${
       isActive 
         ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' 
-        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+        : isSpecial 
+          ? 'text-blue-600 hover:bg-blue-50 bg-blue-50/50 border border-blue-100/50'
+          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
     }`}
   >
     {icon}
     <span className="font-medium">{label}</span>
     {isActive && <ChevronRight className="ml-auto w-4 h-4" />}
+    {isSpecial && !isActive && <Sparkles size={12} className="ml-auto animate-pulse text-blue-400" />}
   </button>
 );
 
@@ -62,6 +67,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
     { id: 'materials', label: 'Inventory', icon: <Package size={20} /> },
     { id: 'expenses', label: 'Expenses', icon: <Receipt size={20} /> },
     { id: 'reports', label: 'Reports', icon: <BarChart3 size={20} /> },
+    { id: 'ai-assistant', label: 'AI Assistant', icon: <Sparkles size={20} />, isSpecial: true },
   ];
 
   return (
@@ -97,6 +103,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
                 label={item.label}
                 isActive={activeTab === item.id}
                 onClick={() => handleTabChange(item.id)}
+                isSpecial={item.isSpecial}
               />
             ))}
           </nav>
