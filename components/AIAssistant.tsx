@@ -4,13 +4,8 @@ import { Send, Bot, Sparkles, User, Loader2, Globe, ShieldAlert, Zap, Info } fro
 import { GoogleGenAI } from "@google/genai";
 import { useApp } from '../AppContext';
 
-// Fix for TS2580: Cannot find name 'process' in browser/Vercel build context
-declare var process: {
-  env: {
-    API_KEY: string;
-    [key: string]: string | undefined;
-  };
-};
+// Global declaration to handle 'process' not found error in browser/TSC
+declare var process: any;
 
 export const AIAssistant: React.FC = () => {
   const { projects, materials, expenses } = useApp();
@@ -38,7 +33,10 @@ export const AIAssistant: React.FC = () => {
     setLoading(true);
 
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const apiKey = process.env.API_KEY;
+      if (!apiKey) throw new Error("API Key not found");
+      
+      const ai = new GoogleGenAI({ apiKey });
       
       const projectSummary = projects.map(p => `${p.name} (${p.status}, Budget: ${p.budget})`).join(', ');
       const materialSummary = materials.map(m => `${m.name}: ${m.totalPurchased - m.totalUsed} ${m.unit} in stock`).join(', ');

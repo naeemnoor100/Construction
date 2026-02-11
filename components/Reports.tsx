@@ -9,8 +9,8 @@ import {
   FileText, 
   Calendar, 
   Filter, 
-  BarChart3 as BarIcon, 
-  PieChart as PieIcon 
+  BarChart3 as LucideBarChart, 
+  PieChart as LucidePieChart 
 } from 'lucide-react';
 import { useApp } from '../AppContext';
 
@@ -56,7 +56,7 @@ export const Reports: React.FC = () => {
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
           <div className="flex justify-between items-center mb-6">
             <h3 className="font-bold text-slate-900 flex items-center gap-2">
-              <BarIcon size={18} className="text-blue-600" />
+              <LucideBarChart size={18} className="text-blue-600" />
               Project Financial Health
             </h3>
             <button className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded uppercase tracking-wider">Full Details</button>
@@ -83,7 +83,7 @@ export const Reports: React.FC = () => {
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
           <div className="flex justify-between items-center mb-6">
             <h3 className="font-bold text-slate-900 flex items-center gap-2">
-              <PieIcon size={18} className="text-emerald-600" />
+              <LucidePieChart size={18} className="text-emerald-600" />
               Stock Asset Distribution
             </h3>
           </div>
