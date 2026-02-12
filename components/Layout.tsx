@@ -7,7 +7,7 @@ import {
   Package, 
   Receipt, 
   BarChart3, 
-  Settings, 
+  Settings as SettingsIcon, 
   Bell, 
   Search,
   Menu,
@@ -193,8 +193,15 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
               <Bell size={20} />
               <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
             </button>
-            <button className="hidden sm:flex items-center gap-2 bg-white border border-slate-200 text-slate-700 px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-slate-50 shadow-sm">
-              <Settings size={16} />
+            <button 
+              onClick={() => handleTabChange('settings')}
+              className={`hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium shadow-sm transition-all ${
+                activeTab === 'settings' 
+                  ? 'bg-blue-600 text-white border-blue-600' 
+                  : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
+              }`}
+            >
+              <SettingsIcon size={16} />
               <span>Settings</span>
             </button>
           </div>

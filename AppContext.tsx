@@ -1,9 +1,10 @@
 
 import React, { createContext, useContext, useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import { AppState, Project, Vendor, Material, Expense, Payment, Income } from './types';
+import { AppState, Project, Vendor, Material, Expense, Payment, Income, User } from './types';
 import { INITIAL_STATE } from './constants';
 
 interface AppContextType extends AppState {
+  updateUser: (u: User) => void;
   addProject: (p: Project) => void;
   updateProject: (p: Project) => void;
   deleteProject: (id: string) => void;
@@ -126,6 +127,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => clearTimeout(timer);
   }, [state, pushToCloud]);
 
+  // CRUD: User
+  const updateUser = (u: User) => updateState(prev => ({ ...prev, currentUser: u }));
+
   // CRUD: Projects
   const addProject = (p: Project) => updateState(prev => ({ ...prev, projects: [...prev.projects, p] }));
   const updateProject = (p: Project) => updateState(prev => ({
@@ -161,7 +165,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return { ...prev, expenses: [...prev.expenses, e], vendors: newVendors };
   });
   const updateExpense = (e: Expense) => updateState(prev => {
-    // Reconcile balances for vendor change or amount change
     const oldExpense = prev.expenses.find(x => x.id === e.id);
     let newVendors = [...prev.vendors];
     if (oldExpense) {
@@ -255,6 +258,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const value = useMemo(() => ({
     ...state,
+    updateUser,
     addProject, updateProject, deleteProject,
     addVendor, updateVendor, deleteVendor,
     addMaterial, updateMaterial, deleteMaterial,
