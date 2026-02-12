@@ -33,6 +33,8 @@ interface AppContextType extends AppState {
   removeTradeCategory: (cat: string) => void;
   addStockingUnit: (unit: string) => void;
   removeStockingUnit: (unit: string) => void;
+  addSiteStatus: (status: string) => void;
+  removeSiteStatus: (status: string) => void;
   loadExternalState: (newState: AppState) => void;
   enableCloudSync: (id: string) => void;
   disableCloudSync: () => void;
@@ -249,6 +251,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const addStockingUnit = (unit: string) => updateState(prev => ({ ...prev, stockingUnits: [...new Set([...prev.stockingUnits, unit])] }), "Add Stocking Unit");
   const removeStockingUnit = (unit: string) => updateState(prev => ({ ...prev, stockingUnits: prev.stockingUnits.filter(u => u !== unit) }), "Remove Stocking Unit");
 
+  const addSiteStatus = (status: string) => updateState(prev => ({ ...prev, siteStatuses: [...new Set([...prev.siteStatuses, status])] }), "Add Site Status");
+  const removeSiteStatus = (status: string) => updateState(prev => ({ ...prev, siteStatuses: prev.siteStatuses.filter(s => s !== status) }), "Remove Site Status");
+
   const enableCloudSync = async (id: string) => {
     setIsSyncing(true);
     try {
@@ -281,7 +286,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     addExpense, updateExpense, deleteExpense,
     addPayment, updatePayment, deletePayment,
     addIncome, updateIncome, deleteIncome,
-    addTradeCategory, removeTradeCategory, addStockingUnit, removeStockingUnit,
+    addTradeCategory, removeTradeCategory, addStockingUnit, removeStockingUnit, addSiteStatus, removeSiteStatus,
     loadExternalState, enableCloudSync, disableCloudSync, forceSync,
     undo, redo, canUndo: past.length > 0, canRedo: future.length > 0,
     lastActionName: past.length > 0 ? past[0].actionName : '',

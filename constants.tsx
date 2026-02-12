@@ -19,5 +19,6 @@ export const INITIAL_STATE: AppState = {
   payments: [],
   incomes: [],
   tradeCategories: ['Material', 'Labor', 'Equipment', 'Overhead', 'Permit'],
-  stockingUnits: ['Bag', 'Ton', 'KG', 'Piece', 'Cubic Meter', 'Litre']
+  stockingUnits: ['Bag', 'Ton', 'KG', 'Piece', 'Cubic Meter', 'Litre'],
+  siteStatuses: ['Upcoming', 'Active', 'On Hold', 'Completed', 'Cancelled']
 };

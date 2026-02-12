@@ -19,7 +19,8 @@ import {
   X,
   List,
   Package,
-  Layers
+  Layers,
+  Activity
 } from 'lucide-react';
 import { useApp } from '../AppContext';
 
@@ -27,7 +28,8 @@ export const Settings: React.FC = () => {
   const { 
     currentUser, updateUser, syncId, theme, setTheme, 
     tradeCategories, addTradeCategory, removeTradeCategory,
-    stockingUnits, addStockingUnit, removeStockingUnit 
+    stockingUnits, addStockingUnit, removeStockingUnit,
+    siteStatuses, addSiteStatus, removeSiteStatus
   } = useApp();
   
   const [activeSection, setActiveSection] = useState<'profile' | 'company' | 'system' | 'master-lists'>('profile');
@@ -35,6 +37,7 @@ export const Settings: React.FC = () => {
 
   const [newTradeCat, setNewTradeCat] = useState('');
   const [newStockUnit, setNewStockUnit] = useState('');
+  const [newSiteStatus, setNewSiteStatus] = useState('');
 
   const [profileData, setProfileData] = useState({
     name: currentUser.name,
@@ -78,6 +81,14 @@ export const Settings: React.FC = () => {
     if (newStockUnit.trim()) {
       addStockingUnit(newStockUnit.trim());
       setNewStockUnit('');
+    }
+  };
+
+  const handleAddSiteStatus = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newSiteStatus.trim()) {
+      addSiteStatus(newSiteStatus.trim());
+      setNewSiteStatus('');
     }
   };
 
@@ -277,13 +288,13 @@ export const Settings: React.FC = () => {
 
             {activeSection === 'master-lists' && (
               <div className="p-8 space-y-10">
+                {/* Trade Categories */}
                 <div className="space-y-4">
                   <div className="flex items-center gap-3">
                     <Layers size={20} className="text-blue-600" />
                     <h3 className="font-bold text-slate-900 dark:text-white">Trade & Expense Categories</h3>
                   </div>
                   <p className="text-xs text-slate-500 dark:text-slate-400">Manage categories used for vendors and financial classification.</p>
-                  
                   <div className="flex flex-wrap gap-2 min-h-[44px] p-2 bg-slate-50 dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-700">
                     {tradeCategories.map(cat => (
                       <span key={cat} className="flex items-center gap-1.5 pl-3 pr-2 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-[10px] font-black uppercase tracking-widest text-slate-700 dark:text-slate-300 shadow-sm animate-in zoom-in-95">
@@ -292,7 +303,6 @@ export const Settings: React.FC = () => {
                       </span>
                     ))}
                   </div>
-
                   <form onSubmit={handleAddTradeCat} className="flex gap-2">
                     <input 
                       type="text" 
@@ -305,13 +315,13 @@ export const Settings: React.FC = () => {
                   </form>
                 </div>
 
+                {/* Stocking Units */}
                 <div className="space-y-4">
                   <div className="flex items-center gap-3">
                     <Package size={20} className="text-emerald-600" />
                     <h3 className="font-bold text-slate-900 dark:text-white">Stocking Units</h3>
                   </div>
                   <p className="text-xs text-slate-500 dark:text-slate-400">Define measurement units for your material inventory registry.</p>
-                  
                   <div className="flex flex-wrap gap-2 min-h-[44px] p-2 bg-slate-50 dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-700">
                     {stockingUnits.map(unit => (
                       <span key={unit} className="flex items-center gap-1.5 pl-3 pr-2 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-[10px] font-black uppercase tracking-widest text-slate-700 dark:text-slate-300 shadow-sm animate-in zoom-in-95">
@@ -320,7 +330,6 @@ export const Settings: React.FC = () => {
                       </span>
                     ))}
                   </div>
-
                   <form onSubmit={handleAddStockUnit} className="flex gap-2">
                     <input 
                       type="text" 
@@ -330,6 +339,33 @@ export const Settings: React.FC = () => {
                       onChange={e => setNewStockUnit(e.target.value)}
                     />
                     <button type="submit" className="p-3 bg-emerald-600 text-white rounded-xl shadow-md hover:bg-emerald-700 active:scale-95 transition-all"><Plus size={20} /></button>
+                  </form>
+                </div>
+
+                {/* Site Statuses */}
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3">
+                    <Activity size={20} className="text-amber-600" />
+                    <h3 className="font-bold text-slate-900 dark:text-white">Site Profile Statuses</h3>
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Customize the statuses available for project lifecycle management.</p>
+                  <div className="flex flex-wrap gap-2 min-h-[44px] p-2 bg-slate-50 dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-700">
+                    {siteStatuses.map(status => (
+                      <span key={status} className="flex items-center gap-1.5 pl-3 pr-2 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-[10px] font-black uppercase tracking-widest text-slate-700 dark:text-slate-300 shadow-sm animate-in zoom-in-95">
+                        {status}
+                        <button onClick={() => removeSiteStatus(status)} className="p-1 hover:text-red-500 transition-colors"><X size={12} /></button>
+                      </span>
+                    ))}
+                  </div>
+                  <form onSubmit={handleAddSiteStatus} className="flex gap-2">
+                    <input 
+                      type="text" 
+                      placeholder="Add new status (e.g. In Review)..." 
+                      className="flex-1 px-4 py-3 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-amber-500 dark:text-white"
+                      value={newSiteStatus}
+                      onChange={e => setNewSiteStatus(e.target.value)}
+                    />
+                    <button type="submit" className="p-3 bg-amber-600 text-white rounded-xl shadow-md hover:bg-amber-700 active:scale-95 transition-all"><Plus size={20} /></button>
                   </form>
                 </div>
               </div>

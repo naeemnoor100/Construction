@@ -10,7 +10,9 @@ import {
   X,
   MapPin,
   DollarSign,
-  ArrowUpCircle
+  ArrowUpCircle,
+  Phone,
+  Activity
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -53,10 +55,10 @@ const StatCard: React.FC<{
 );
 
 export const Dashboard: React.FC = () => {
-  const { projects, expenses, materials, addProject, incomes } = useApp();
+  const { projects, expenses, materials, addProject, incomes, siteStatuses } = useApp();
   const [showModal, setShowModal] = useState(false);
   const [formData, setFormData] = useState({
-    name: '', client: '', location: '', budget: '', startDate: new Date().toISOString().split('T')[0], endDate: '', description: ''
+    name: '', client: '', location: '', contactNumber: '', budget: '', startDate: new Date().toISOString().split('T')[0], endDate: '', description: '', status: siteStatuses[0] || 'Active'
   });
 
   useEffect(() => {
@@ -87,15 +89,16 @@ export const Dashboard: React.FC = () => {
       name: formData.name,
       client: formData.client,
       location: formData.location,
+      contactNumber: formData.contactNumber,
       budget: parseFloat(formData.budget) || 0,
       startDate: formData.startDate,
       endDate: formData.endDate || formData.startDate,
-      status: 'Active',
+      status: formData.status,
       description: formData.description
     };
     addProject(newProject);
     setShowModal(false);
-    setFormData({ name: '', client: '', location: '', budget: '', startDate: new Date().toISOString().split('T')[0], endDate: '', description: '' });
+    setFormData({ name: '', client: '', location: '', contactNumber: '', budget: '', startDate: new Date().toISOString().split('T')[0], endDate: '', description: '', status: siteStatuses[0] || 'Active' });
   };
 
   return (
@@ -206,8 +209,31 @@ export const Dashboard: React.FC = () => {
                 <input type="text" placeholder="e.g. Skyline Towers" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:ring-2 focus:ring-blue-500" value={formData.name} onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))} required />
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <input type="text" placeholder="Client" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none" value={formData.client} onChange={(e) => setFormData(prev => ({ ...prev, client: e.target.value }))} required />
+                <input type="text" placeholder="Client Name" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none" value={formData.client} onChange={(e) => setFormData(prev => ({ ...prev, client: e.target.value }))} required />
                 <input type="text" placeholder="Location" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none" value={formData.location} onChange={(e) => setFormData(prev => ({ ...prev, location: e.target.value }))} required />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Contact Number</label>
+                  <div className="relative">
+                    <Phone className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                    <input type="tel" placeholder="+91 00000 00000" className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:ring-2 focus:ring-blue-500" value={formData.contactNumber} onChange={(e) => setFormData(prev => ({ ...prev, contactNumber: e.target.value }))} />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Initial Status</label>
+                  <div className="relative">
+                    <Activity className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                    <select 
+                      className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:ring-2 focus:ring-blue-500 appearance-none" 
+                      value={formData.status} 
+                      onChange={(e) => setFormData(prev => ({ ...prev, status: e.target.value }))}
+                      required
+                    >
+                      {siteStatuses.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+                </div>
               </div>
               <div className="space-y-1.5">
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Total Budget (Rs.)</label>

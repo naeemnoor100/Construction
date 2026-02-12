@@ -7,7 +7,6 @@ import { ProjectList } from './components/ProjectList';
 import { VendorList } from './components/VendorList';
 import { Inventory } from './components/Inventory';
 import { ExpenseTracker } from './components/ExpenseTracker';
-import { AIAssistant } from './components/AIAssistant';
 import { Reports } from './components/Reports';
 import { ProjectIncome } from './components/ProjectIncome';
 import { Settings } from './components/Settings';
@@ -31,8 +30,6 @@ const MainApp: React.FC = () => {
         return <ExpenseTracker />;
       case 'reports':
         return <Reports />;
-      case 'ai-assistant':
-        return <AIAssistant />;
       case 'settings':
         return <Settings />;
       default:

@@ -23,7 +23,9 @@ import {
   Tag,
   Users,
   Package,
-  CheckCircle2
+  CheckCircle2,
+  Phone,
+  Activity
 } from 'lucide-react';
 import { useApp } from '../AppContext';
 import { ProjectStatus, Project, Expense, Income, PaymentMethod, Material } from '../types';
@@ -32,14 +34,14 @@ const formatCurrency = (val: number) => `Rs. ${val.toLocaleString('en-IN')}`;
 
 export const ProjectList: React.FC = () => {
   const { 
-    projects, expenses, vendors, materials, incomes, 
+    projects, expenses, vendors, materials, incomes, siteStatuses,
     addProject, updateProject, deleteProject, 
     addExpense, updateExpense, deleteExpense,
     addIncome, updateIncome, deleteIncome,
     updateMaterial
   } = useApp();
   
-  const [filter, setFilter] = useState<ProjectStatus | 'All'>('All');
+  const [filter, setFilter] = useState<string>('All');
   const [showModal, setShowModal] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [viewingProject, setViewingProject] = useState<Project | null>(null);
@@ -69,7 +71,7 @@ export const ProjectList: React.FC = () => {
   }, []);
 
   const [formData, setFormData] = useState({
-    name: '', client: '', location: '', budget: '', startDate: new Date().toISOString().split('T')[0], endDate: '', description: ''
+    name: '', client: '', location: '', contactNumber: '', budget: '', startDate: new Date().toISOString().split('T')[0], endDate: '', description: '', status: siteStatuses[0] || 'Active'
   });
 
   const [expenseFormData, setExpenseFormData] = useState({
@@ -235,19 +237,25 @@ export const ProjectList: React.FC = () => {
           <p className="text-slate-500 dark:text-slate-400 text-sm font-medium">Monitor sites and manage specific project financials.</p>
         </div>
         <button 
-          onClick={() => { setEditingProject(null); setShowModal(true); }}
+          onClick={() => { setEditingProject(null); setShowModal(true); setFormData({ name: '', client: '', location: '', contactNumber: '', budget: '', startDate: new Date().toISOString().split('T')[0], endDate: '', description: '', status: siteStatuses[0] || 'Active' }); }}
           className="w-full sm:w-auto bg-blue-600 text-white px-5 py-3 rounded-2xl font-bold flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all"
         >
           <Plus size={20} /> Add Project
         </button>
       </div>
 
-      <div className="flex bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-1 overflow-x-auto no-scrollbar w-fit">
-        {(['All', 'Active', 'On Hold', 'Completed'] as const).map(tab => (
+      <div className="flex bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-1 overflow-x-auto no-scrollbar w-fit max-w-full">
+        <button
+          onClick={() => setFilter('All')}
+          className={`px-5 py-2 text-[10px] font-bold uppercase tracking-widest rounded-xl transition-all whitespace-nowrap ${filter === 'All' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'}`}
+        >
+          All
+        </button>
+        {siteStatuses.map(tab => (
           <button
             key={tab}
             onClick={() => setFilter(tab)}
-            className={`px-5 py-2 text-[10px] font-bold uppercase tracking-widest rounded-xl transition-all ${filter === tab ? 'bg-blue-600 text-white shadow-md' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'}`}
+            className={`px-5 py-2 text-[10px] font-bold uppercase tracking-widest rounded-xl transition-all whitespace-nowrap ${filter === tab ? 'bg-blue-600 text-white shadow-md' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'}`}
           >
             {tab}
           </button>
@@ -261,7 +269,7 @@ export const ProjectList: React.FC = () => {
             <div key={project.id} className="bg-white dark:bg-slate-800 rounded-[2.5rem] border border-slate-200 dark:border-slate-700 overflow-hidden hover:border-blue-400 dark:hover:border-blue-500 transition-all group flex flex-col shadow-sm">
               <div className="p-6 flex-1">
                 <div className="flex justify-between mb-4">
-                  <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${project.status === 'Active' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30' : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30'}`}>
+                  <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${project.status === 'Active' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30' : 'bg-slate-100 text-slate-700 dark:bg-slate-900/30'}`}>
                     {project.status}
                   </span>
                   <div className="flex gap-2">
@@ -272,10 +280,12 @@ export const ProjectList: React.FC = () => {
                           name: project.name, 
                           client: project.client, 
                           location: project.location, 
+                          contactNumber: project.contactNumber || '',
                           budget: project.budget.toString(), 
                           startDate: project.startDate, 
                           endDate: project.endDate, 
-                          description: project.description || '' 
+                          description: project.description || '',
+                          status: project.status
                         }); 
                         setShowModal(true); 
                       }} 
@@ -295,6 +305,11 @@ export const ProjectList: React.FC = () => {
                 <p className="text-slate-400 text-xs font-bold uppercase flex items-center gap-1.5 mt-1">
                   <MapPin size={12} /> {project.location}
                 </p>
+                {project.contactNumber && (
+                   <p className="text-slate-400 text-[10px] font-bold uppercase flex items-center gap-1.5 mt-1">
+                     <Phone size={10} /> {project.contactNumber}
+                   </p>
+                )}
                 <div className="mt-6 space-y-5">
                   <div>
                     <div className="flex justify-between text-[10px] font-black text-slate-400 mb-1.5 uppercase tracking-widest">
@@ -329,7 +344,7 @@ export const ProjectList: React.FC = () => {
         })}
       </div>
 
-      {/* Insights Modal with Enhanced Expense Summary */}
+      {/* Insights Modal */}
       {viewingProject && (() => {
         const metrics = calculateProjectMetrics(viewingProject.id, viewingProject.budget);
         const projectExpenses = expenses.filter(e => e.projectId === viewingProject.id);
@@ -344,7 +359,7 @@ export const ProjectList: React.FC = () => {
                   </div>
                   <div>
                     <h2 className="text-2xl font-black text-slate-900 dark:text-white uppercase tracking-tighter leading-none">{viewingProject.name}</h2>
-                    <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mt-1">Client: {viewingProject.client}</p>
+                    <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mt-1">Client: {viewingProject.client} {viewingProject.contactNumber && `• ${viewingProject.contactNumber}`}</p>
                   </div>
                 </div>
                 <button onClick={() => setViewingProject(null)} className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white"><X size={32} /></button>
@@ -704,16 +719,17 @@ export const ProjectList: React.FC = () => {
                 name: formData.name,
                 client: formData.client,
                 location: formData.location,
+                contactNumber: formData.contactNumber,
                 budget: parseFloat(formData.budget) || 0,
                 startDate: formData.startDate,
                 endDate: formData.endDate || formData.startDate,
-                status: editingProject ? editingProject.status : 'Active',
+                status: formData.status,
                 description: formData.description
               };
               if (editingProject) updateProject(projectData); else addProject(projectData);
               setShowModal(false);
               setEditingProject(null);
-              setFormData({ name: '', client: '', location: '', budget: '', startDate: new Date().toISOString().split('T')[0], endDate: '', description: '' });
+              setFormData({ name: '', client: '', location: '', contactNumber: '', budget: '', startDate: new Date().toISOString().split('T')[0], endDate: '', description: '', status: siteStatuses[0] || 'Active' });
             }} className="p-6 space-y-5 overflow-y-auto no-scrollbar pb-safe">
               <div className="space-y-1.5">
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Official Project Name</label>
@@ -727,6 +743,29 @@ export const ProjectList: React.FC = () => {
                 <div className="space-y-1.5">
                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Site Location</label>
                    <input type="text" placeholder="Location" className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={formData.location} onChange={(e) => setFormData(prev => ({ ...prev, location: e.target.value }))} required />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Contact Number</label>
+                  <div className="relative">
+                    <Phone className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                    <input type="tel" placeholder="+91 00000 00000" className="w-full pl-12 pr-4 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all" value={formData.contactNumber} onChange={(e) => setFormData(prev => ({ ...prev, contactNumber: e.target.value }))} />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Project Lifecycle Status</label>
+                  <div className="relative">
+                    <Activity className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                    <select 
+                      className="w-full pl-12 pr-4 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all appearance-none" 
+                      value={formData.status} 
+                      onChange={(e) => setFormData(prev => ({ ...prev, status: e.target.value }))}
+                      required
+                    >
+                      {siteStatuses.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
                 </div>
               </div>
               <div className="space-y-1.5">

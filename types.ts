@@ -9,7 +9,7 @@ export interface User {
   avatar?: string;
 }
 
-export type ProjectStatus = 'Active' | 'Completed' | 'On Hold';
+export type ProjectStatus = string;
 
 export interface Project {
   id: string;
@@ -21,6 +21,7 @@ export interface Project {
   budget: number;
   status: ProjectStatus;
   description?: string;
+  contactNumber?: string;
 }
 
 export type VendorCategory = string;
@@ -28,9 +29,10 @@ export type VendorCategory = string;
 export interface Vendor {
   id: string;
   name: string;
-  contact: string;
+  phone: string;
+  address: string;
   category: VendorCategory;
-  email: string;
+  email?: string;
   balance: number;
 }
 
@@ -99,6 +101,7 @@ export interface AppState {
   incomes: Income[];
   tradeCategories: string[];
   stockingUnits: string[];
+  siteStatuses: string[];
   currentUser: User;
   theme: 'light' | 'dark';
   syncId?: string;

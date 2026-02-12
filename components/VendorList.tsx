@@ -21,7 +21,9 @@ import {
   ArrowRight,
   TrendingUp,
   Landmark,
-  MoreVertical
+  MoreVertical,
+  Phone,
+  MapPin
 } from 'lucide-react';
 import { useApp } from '../AppContext';
 import { Vendor, VendorCategory, Payment, PaymentMethod, Project } from '../types';
@@ -39,7 +41,7 @@ export const VendorList: React.FC = () => {
   const [selectedVendorForPayment, setSelectedVendorForPayment] = useState<Vendor | null>(null);
   
   const [formData, setFormData] = useState({
-    name: '', contact: '', category: tradeCategories[0] || 'Material', email: '', balance: ''
+    name: '', phone: '', category: tradeCategories[0] || 'Material', address: '', balance: ''
   });
 
   const [paymentFormData, setPaymentFormData] = useState({
@@ -65,15 +67,15 @@ export const VendorList: React.FC = () => {
   const filteredVendors = useMemo(() => {
     return vendors.filter(v => 
       v.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-      v.email.toLowerCase().includes(searchTerm.toLowerCase())
+      v.phone.toLowerCase().includes(searchTerm.toLowerCase())
     );
   }, [vendors, searchTerm]);
 
-  const handleOpenPaymentModal = (vendor: Vendor) => {
+  const handleOpenPaymentModal = (vendor: Vendor, prefillProjectId?: string, prefillAmount?: number) => {
     setSelectedVendorForPayment(vendor);
     setPaymentFormData({
-      projectId: projects[0]?.id || '',
-      amount: '',
+      projectId: prefillProjectId || projects[0]?.id || '',
+      amount: prefillAmount ? Math.min(prefillAmount, vendor.balance).toString() : '',
       method: 'Bank',
       date: new Date().toISOString().split('T')[0],
       reference: ''
@@ -83,8 +85,22 @@ export const VendorList: React.FC = () => {
 
   const handleRecordPayment = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedVendorForPayment || !paymentFormData.projectId) {
+    if (!selectedVendorForPayment) return;
+    
+    const amountNum = parseFloat(paymentFormData.amount) || 0;
+    
+    if (!paymentFormData.projectId) {
       alert("Error: Every payment must be linked to a specific project site for audit compliance.");
+      return;
+    }
+
+    if (amountNum > selectedVendorForPayment.balance) {
+      alert(`Invalid Amount: You cannot settle more than the outstanding balance of ${formatCurrency(selectedVendorForPayment.balance)}.`);
+      return;
+    }
+
+    if (amountNum <= 0) {
+      alert("Error: Payment amount must be greater than zero.");
       return;
     }
     
@@ -93,7 +109,7 @@ export const VendorList: React.FC = () => {
       date: paymentFormData.date,
       vendorId: selectedVendorForPayment.id,
       projectId: paymentFormData.projectId,
-      amount: parseFloat(paymentFormData.amount) || 0,
+      amount: amountNum,
       method: paymentFormData.method,
       reference: paymentFormData.reference
     };
@@ -122,7 +138,12 @@ export const VendorList: React.FC = () => {
       if (mat.history) {
         mat.history.forEach(h => {
           if (h.type === 'Purchase' && h.vendorId === viewingVendorDetails.id) {
-            supplyList.push({ ...h, materialName: mat.name, unit: mat.unit });
+            supplyList.push({ 
+              ...h, 
+              materialName: mat.name, 
+              unit: mat.unit,
+              estimatedValue: h.quantity * mat.costPerUnit 
+            });
           }
         });
       }
@@ -138,7 +159,7 @@ export const VendorList: React.FC = () => {
           <p className="text-slate-500 dark:text-slate-400 text-sm">Monitor outstanding balances and record project-wise settlements.</p>
         </div>
         <button 
-          onClick={() => { setEditingVendor(null); setShowModal(true); setFormData({ name: '', contact: '', category: tradeCategories[0] || 'Material', email: '', balance: '' }); }}
+          onClick={() => { setEditingVendor(null); setShowModal(true); setFormData({ name: '', phone: '', category: tradeCategories[0] || 'Material', address: '', balance: '' }); }}
           className="w-full sm:w-auto bg-blue-600 text-white px-6 py-3.5 rounded-2xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-blue-200 active:scale-95 transition-all"
         >
           <Plus size={20} /> Register Supplier
@@ -150,7 +171,7 @@ export const VendorList: React.FC = () => {
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
           <input 
             type="text" 
-            placeholder="Search by vendor name or email..." 
+            placeholder="Search by vendor name or phone..." 
             value={searchTerm} 
             onChange={(e) => setSearchTerm(e.target.value)} 
             className="w-full pl-12 pr-4 py-3.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-all dark:text-white" 
@@ -179,7 +200,7 @@ export const VendorList: React.FC = () => {
                        </div>
                        <div>
                           <p className="text-sm font-black text-slate-900 dark:text-slate-100 uppercase tracking-tight">{vendor.name}</p>
-                          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter">{vendor.email}</p>
+                          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter">{vendor.phone}</p>
                        </div>
                     </div>
                   </td>
@@ -209,6 +230,22 @@ export const VendorList: React.FC = () => {
                         className="p-3 text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-2xl transition-all"
                        >
                          <History size={20} />
+                       </button>
+                       <button 
+                        onClick={() => {
+                          setEditingVendor(vendor);
+                          setFormData({
+                            name: vendor.name,
+                            phone: vendor.phone,
+                            category: vendor.category,
+                            address: vendor.address,
+                            balance: vendor.balance.toString()
+                          });
+                          setShowModal(true);
+                        }}
+                        className="p-3 text-slate-400 hover:text-blue-600 transition-colors"
+                       >
+                         <Pencil size={18} />
                        </button>
                        <button 
                         onClick={() => handleDeleteVendor(vendor.id, vendor.name)}
@@ -274,8 +311,23 @@ export const VendorList: React.FC = () => {
 
                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Payment Amount (Rs.)</label>
-                    <input type="number" step="0.01" required placeholder="0.00" className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-black text-lg dark:text-white outline-none focus:ring-4 focus:ring-emerald-500/10" value={paymentFormData.amount} onChange={(e) => setPaymentFormData(p => ({ ...p, amount: e.target.value }))} />
+                    <div className="flex justify-between items-center px-1">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Payment Amount (Rs.)</label>
+                      {parseFloat(paymentFormData.amount) > selectedVendorForPayment.balance && (
+                        <span className="text-[9px] font-black text-red-500 uppercase animate-pulse flex items-center gap-1">
+                          <AlertCircle size={10} /> Limit Exceeded
+                        </span>
+                      )}
+                    </div>
+                    <input 
+                      type="number" 
+                      step="0.01" 
+                      required 
+                      placeholder="0.00" 
+                      className={`w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border rounded-2xl font-black text-lg dark:text-white outline-none focus:ring-4 transition-all ${parseFloat(paymentFormData.amount) > selectedVendorForPayment.balance ? 'border-red-500 focus:ring-red-500/10' : 'border-slate-200 dark:border-slate-700 focus:ring-emerald-500/10'}`} 
+                      value={paymentFormData.amount} 
+                      onChange={(e) => setPaymentFormData(p => ({ ...p, amount: e.target.value }))} 
+                    />
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Date</label>
@@ -306,7 +358,11 @@ export const VendorList: React.FC = () => {
                   </div>
                </div>
 
-               <button type="submit" className="w-full bg-emerald-600 text-white py-5 rounded-[2rem] font-black shadow-2xl shadow-emerald-200 dark:shadow-none active:scale-95 transition-all text-sm uppercase tracking-widest flex items-center justify-center gap-3">
+               <button 
+                type="submit" 
+                disabled={parseFloat(paymentFormData.amount) > selectedVendorForPayment.balance}
+                className={`w-full py-5 rounded-[2rem] font-black shadow-2xl transition-all text-sm uppercase tracking-widest flex items-center justify-center gap-3 ${parseFloat(paymentFormData.amount) > selectedVendorForPayment.balance ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none' : 'bg-emerald-600 text-white shadow-emerald-200 dark:shadow-none active:scale-95'}`}
+               >
                  <CheckCircle2 size={24} />
                  Authorize Payment
                </button>
@@ -318,7 +374,7 @@ export const VendorList: React.FC = () => {
       {/* Vendor Ledger Modal */}
       {viewingVendorDetails && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
-          <div className="bg-white dark:bg-slate-800 rounded-[3rem] w-full max-w-5xl h-[90vh] shadow-2xl overflow-hidden flex flex-col mobile-sheet animate-in slide-in-from-bottom-8 duration-300">
+          <div className="bg-white dark:bg-slate-800 rounded-[3rem] w-full max-w-6xl h-[90vh] shadow-2xl overflow-hidden flex flex-col mobile-sheet animate-in slide-in-from-bottom-8 duration-300">
             <div className="p-8 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-white dark:bg-slate-800 shrink-0">
                <div className="flex gap-4 items-center">
                  <div className="w-14 h-14 bg-blue-600 text-white rounded-[1.5rem] flex items-center justify-center font-black text-2xl shadow-xl">{viewingVendorDetails.name.charAt(0)}</div>
@@ -381,24 +437,41 @@ export const VendorList: React.FC = () => {
                    ) : (
                       <table className="w-full text-left min-w-[600px]">
                         <thead className="bg-slate-50 dark:bg-slate-900 text-[10px] font-black text-slate-400 uppercase border-b border-slate-100 dark:border-slate-700">
-                          <tr><th className="px-8 py-5">Arrival Date</th><th className="px-8 py-5">Material Asset</th><th className="px-8 py-5 text-right">Qty Received</th><th className="px-8 py-5">Site Allocation</th></tr>
+                          <tr>
+                            <th className="px-8 py-5">Arrival Date</th>
+                            <th className="px-8 py-5">Material Asset</th>
+                            <th className="px-8 py-5 text-right">Qty Received</th>
+                            <th className="px-8 py-5">Site Allocation</th>
+                            <th className="px-8 py-5 text-right">Quick Settlement</th>
+                          </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
                           {vendorSupplies.length > 0 ? vendorSupplies.map((supply, idx) => (
-                            <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/50 transition-colors">
+                            <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/50 transition-colors group/row">
                               <td className="px-8 py-5 text-xs font-bold text-slate-500 dark:text-slate-400">{new Date(supply.date).toLocaleDateString()}</td>
                               <td className="px-8 py-5">
                                 <div className="flex items-center gap-3">
                                   <div className="w-8 h-8 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 rounded-lg flex items-center justify-center"><Package size={14} /></div>
-                                  <span className="font-black text-[11px] text-slate-800 dark:text-slate-200 uppercase tracking-tight">{supply.materialName}</span>
+                                  <div>
+                                    <p className="font-black text-[11px] text-slate-800 dark:text-slate-200 uppercase tracking-tight">{supply.materialName}</p>
+                                    <p className="text-[9px] text-slate-400 font-bold uppercase">Val: {formatCurrency(supply.estimatedValue)}</p>
+                                  </div>
                                 </div>
                               </td>
                               <td className="px-8 py-5 text-[11px] font-black text-slate-700 dark:text-slate-300 text-right">{supply.quantity.toLocaleString()} {supply.unit}</td>
                               <td className="px-8 py-5 text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-tighter">{projects.find(p => p.id === supply.projectId)?.name || 'Direct Allocation'}</td>
+                              <td className="px-8 py-5 text-right">
+                                <button 
+                                  onClick={() => handleOpenPaymentModal(viewingVendorDetails, supply.projectId, supply.estimatedValue)}
+                                  className="bg-emerald-600 text-white px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-emerald-700 transition-all flex items-center gap-1.5 ml-auto shadow-md shadow-emerald-100 dark:shadow-none active:scale-95"
+                                >
+                                  <DollarSign size={12} /> Pay Now
+                                </button>
+                              </td>
                             </tr>
                           )) : (
                             <tr>
-                              <td colSpan={4} className="px-8 py-20 text-center">
+                              <td colSpan={5} className="px-8 py-20 text-center">
                                 <AlertCircle size={32} className="mx-auto text-slate-300 mb-4 opacity-50" />
                                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">No procurement history recorded for this supplier</p>
                               </td>
@@ -427,9 +500,9 @@ export const VendorList: React.FC = () => {
               const vendorData: Vendor = {
                 id: editingVendor ? editingVendor.id : 'v' + Date.now(),
                 name: formData.name,
-                contact: formData.contact,
+                phone: formData.phone,
                 category: formData.category,
-                email: formData.email,
+                address: formData.address,
                 balance: parseFloat(formData.balance) || 0
               };
               if (editingVendor) updateVendor(vendorData); else addVendor(vendorData);
@@ -455,8 +528,18 @@ export const VendorList: React.FC = () => {
                 </div>
               </div>
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Email / Point of Contact</label>
-                <input type="email" placeholder="billing@vendor.com" className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={formData.email} onChange={(e) => setFormData(p => ({ ...p, email: e.target.value }))} required />
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Contact Phone Number</label>
+                <div className="relative">
+                  <Phone className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                  <input type="tel" placeholder="+91 00000 00000" className="w-full pl-12 pr-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none focus:ring-4 focus:ring-blue-500/10" value={formData.phone} onChange={(e) => setFormData(p => ({ ...p, phone: e.target.value }))} required />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Full Business Address</label>
+                <div className="relative">
+                  <MapPin className="absolute left-4 top-4 text-slate-400" size={18} />
+                  <textarea placeholder="Shop #, Street, City, ZIP..." className="w-full pl-12 pr-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none focus:ring-4 focus:ring-blue-500/10" value={formData.address} onChange={(e) => setFormData(p => ({ ...p, address: e.target.value }))} rows={2} required />
+                </div>
               </div>
               <div className="flex gap-4 pt-6">
                  <button type="button" onClick={() => setShowModal(false)} className="flex-1 bg-slate-100 dark:bg-slate-700 py-4 rounded-[1.5rem] font-black text-[10px] uppercase tracking-widest text-slate-500">Discard</button>

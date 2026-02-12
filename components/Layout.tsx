@@ -113,7 +113,6 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
     { id: 'materials', label: 'Stock', icon: <Package size={20} /> },
     { id: 'expenses', label: 'Finance', icon: <Receipt size={20} /> },
     { id: 'reports', label: 'Stats', icon: <BarChart3 size={20} /> },
-    { id: 'ai-assistant', label: 'Helper', icon: <Sparkles size={20} />, isSpecial: true },
   ];
 
   return (
@@ -129,7 +128,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
           </div>
           <nav className="flex-1 px-4 space-y-1 overflow-y-auto no-scrollbar">
             {menuItems.map((item) => (
-              <SidebarItem key={item.id} icon={item.icon} label={item.label} isActive={activeTab === item.id} onClick={() => { setActiveTab(item.id); setSidebarOpen(false); }} isSpecial={item.isSpecial} />
+              <SidebarItem key={item.id} icon={item.icon} label={item.label} isActive={activeTab === item.id} onClick={() => { setActiveTab(item.id); setSidebarOpen(false); }} />
             ))}
           </nav>
           <div className="p-4 border-t border-slate-100 dark:border-slate-700">
@@ -176,7 +175,6 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
         <div className="flex-1 overflow-y-auto p-4 lg:p-8 bg-slate-50 dark:bg-slate-900 pb-32 lg:pb-8 relative no-scrollbar">
           <div className="max-w-7xl mx-auto h-full">{children}</div>
 
-          {/* Toast Notification repositioned for thumb access */}
           {showUndoToast && lastActionName && (
             <div className="fixed bottom-28 lg:bottom-10 left-4 right-4 sm:left-1/2 sm:-translate-x-1/2 z-[100] animate-in slide-in-from-bottom-4 fade-in duration-300">
               <div className="bg-slate-900/95 dark:bg-slate-800/95 backdrop-blur-xl text-white px-5 py-4 rounded-3xl shadow-2xl border border-white/10 flex items-center justify-between gap-4">
@@ -192,7 +190,6 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
           )}
         </div>
 
-        {/* High-Fidelity Mobile Bottom Tabs */}
         <div className="lg:hidden fixed bottom-0 left-0 right-0 h-20 bg-white/90 dark:bg-slate-800/90 backdrop-blur-xl border-t border-slate-200 dark:border-slate-700 flex items-center justify-around px-2 z-[60] pb-safe shadow-[0_-8px_20px_rgba(0,0,0,0.05)]">
           <MobileNavItem label="Dash" icon={<LayoutDashboard />} isActive={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
           <MobileNavItem label="Sites" icon={<Briefcase />} isActive={activeTab === 'projects'} onClick={() => setActiveTab('projects')} />
