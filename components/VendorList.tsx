@@ -36,7 +36,11 @@ export const VendorList: React.FC = () => {
   const [showModal, setShowModal] = useState(false);
   const [editingVendor, setEditingVendor] = useState<Vendor | null>(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
-  const [viewingVendorDetails, setViewingVendorDetails] = useState<Vendor | null>(null);
+  
+  // Track by ID to ensure reactive updates when balance changes
+  const [viewingVendorId, setViewingVendorId] = useState<string | null>(null);
+  const activeVendor = useMemo(() => vendors.find(v => v.id === viewingVendorId), [vendors, viewingVendorId]);
+  
   const [activeDetailTab, setActiveDetailTab] = useState<'payments' | 'supplies'>('payments');
   const [selectedVendorForPayment, setSelectedVendorForPayment] = useState<Vendor | null>(null);
   
@@ -57,7 +61,7 @@ export const VendorList: React.FC = () => {
       if (e.key === 'Escape') {
         setShowModal(false);
         setShowPaymentModal(false);
-        setViewingVendorDetails(null);
+        setViewingVendorId(null);
       }
     };
     window.addEventListener('keydown', handleEsc);
@@ -132,12 +136,12 @@ export const VendorList: React.FC = () => {
   };
 
   const vendorSupplies = useMemo(() => {
-    if (!viewingVendorDetails) return [];
+    if (!activeVendor) return [];
     const supplyList: any[] = [];
     materials.forEach(mat => {
       if (mat.history) {
         mat.history.forEach(h => {
-          if (h.type === 'Purchase' && h.vendorId === viewingVendorDetails.id) {
+          if (h.type === 'Purchase' && h.vendorId === activeVendor.id) {
             supplyList.push({ 
               ...h, 
               materialName: mat.name, 
@@ -149,7 +153,7 @@ export const VendorList: React.FC = () => {
       }
     });
     return supplyList.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [viewingVendorDetails, materials]);
+  }, [activeVendor, materials]);
 
   return (
     <div className="space-y-6">
@@ -226,7 +230,7 @@ export const VendorList: React.FC = () => {
                          <DollarSign size={14} /> Record Pay
                        </button>
                        <button 
-                        onClick={() => setViewingVendorDetails(vendor)} 
+                        onClick={() => setViewingVendorId(vendor.id)} 
                         className="p-3 text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-2xl transition-all"
                        >
                          <History size={20} />
@@ -372,18 +376,24 @@ export const VendorList: React.FC = () => {
       )}
 
       {/* Vendor Ledger Modal */}
-      {viewingVendorDetails && (
+      {activeVendor && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
           <div className="bg-white dark:bg-slate-800 rounded-[3rem] w-full max-w-6xl h-[90vh] shadow-2xl overflow-hidden flex flex-col mobile-sheet animate-in slide-in-from-bottom-8 duration-300">
             <div className="p-8 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-white dark:bg-slate-800 shrink-0">
                <div className="flex gap-4 items-center">
-                 <div className="w-14 h-14 bg-blue-600 text-white rounded-[1.5rem] flex items-center justify-center font-black text-2xl shadow-xl">{viewingVendorDetails.name.charAt(0)}</div>
+                 <div className="w-14 h-14 bg-blue-600 text-white rounded-[1.5rem] flex items-center justify-center font-black text-2xl shadow-xl">{activeVendor.name.charAt(0)}</div>
                  <div>
                     <h2 className="text-2xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">Supplier Ledger</h2>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{viewingVendorDetails.name} • {viewingVendorDetails.category} Specialist</p>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{activeVendor.name} • {activeVendor.category} Specialist</p>
                  </div>
                </div>
-               <button onClick={() => setViewingVendorDetails(null)} className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white"><X size={36} /></button>
+               <div className="flex items-center gap-6">
+                 <div className="hidden sm:block text-right">
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Global Outstanding</p>
+                    <p className={`text-lg font-black ${activeVendor.balance > 0 ? 'text-red-600' : 'text-emerald-600'}`}>{formatCurrency(activeVendor.balance)}</p>
+                 </div>
+                 <button onClick={() => setViewingVendorId(null)} className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white"><X size={36} /></button>
+               </div>
             </div>
 
             <div className="flex border-b border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/20 shrink-0 px-4">
@@ -406,7 +416,7 @@ export const VendorList: React.FC = () => {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-                          {payments.filter(p => p.vendorId === viewingVendorDetails.id).slice().reverse().map(pay => (
+                          {payments.filter(p => p.vendorId === activeVendor.id).slice().reverse().map(pay => (
                             <tr key={pay.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/50 transition-colors group/row">
                               <td className="px-8 py-5 text-xs font-bold text-slate-500 dark:text-slate-400">{new Date(pay.date).toLocaleDateString()}</td>
                               <td className="px-8 py-5">
@@ -462,7 +472,7 @@ export const VendorList: React.FC = () => {
                               <td className="px-8 py-5 text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-tighter">{projects.find(p => p.id === supply.projectId)?.name || 'Direct Allocation'}</td>
                               <td className="px-8 py-5 text-right">
                                 <button 
-                                  onClick={() => handleOpenPaymentModal(viewingVendorDetails, supply.projectId, supply.estimatedValue)}
+                                  onClick={() => handleOpenPaymentModal(activeVendor, supply.projectId, supply.estimatedValue)}
                                   className="bg-emerald-600 text-white px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-emerald-700 transition-all flex items-center gap-1.5 ml-auto shadow-md shadow-emerald-100 dark:shadow-none active:scale-95"
                                 >
                                   <DollarSign size={12} /> Pay Now
