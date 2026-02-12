@@ -3,6 +3,11 @@ import React, { createContext, useContext, useState, useCallback, useMemo, useEf
 import { AppState, Project, Vendor, Material, Expense, Payment, Income, User } from './types';
 import { INITIAL_STATE } from './constants';
 
+interface HistoryState {
+  state: AppState;
+  actionName: string;
+}
+
 interface AppContextType extends AppState {
   updateUser: (u: User) => void;
   setTheme: (theme: 'light' | 'dark') => void;
@@ -29,7 +34,10 @@ interface AppContextType extends AppState {
   disableCloudSync: () => void;
   forceSync: () => Promise<void>;
   undo: () => void;
+  redo: () => void;
   canUndo: boolean;
+  canRedo: boolean;
+  lastActionName: string;
   isSyncing: boolean;
   syncError: boolean;
   lastSynced: Date;
@@ -40,7 +48,7 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 const STORAGE_KEY = 'buildtrack_pro_state_v2';
 const SYNC_CHANNEL = 'buildtrack_sync_v2';
 const CLOUD_API = 'https://jsonblob.com/api/jsonBlob';
-const MAX_HISTORY = 25;
+const MAX_HISTORY = 30;
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [state, setState] = useState<AppState>(() => {
@@ -48,7 +56,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        // Ensure theme is present in recovered state
         if (!parsed.theme) parsed.theme = 'light';
         return parsed;
       } catch (e) {
@@ -58,37 +65,44 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return { ...INITIAL_STATE, lastUpdated: Date.now() };
   });
 
-  const [past, setPast] = useState<AppState[]>([]);
+  const [past, setPast] = useState<HistoryState[]>([]);
+  const [future, setFuture] = useState<HistoryState[]>([]);
   const [lastSynced, setLastSynced] = useState(new Date());
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncError, setSyncError] = useState(false);
   const syncChannel = useRef<BroadcastChannel | null>(null);
   const skipNextCloudPush = useRef(false);
 
-  const updateState = useCallback((updater: (prev: AppState) => AppState, saveToHistory = false) => {
+  const updateState = useCallback((updater: (prev: AppState) => AppState, actionName?: string) => {
     setState(prev => {
       const newState = updater(prev);
-      if (saveToHistory) {
-        setPast(p => [prev, ...p].slice(0, MAX_HISTORY));
+      if (actionName) {
+        setPast(p => [{ state: prev, actionName }, ...p].slice(0, MAX_HISTORY));
+        setFuture([]); // New action clears future redo stack
       }
       return { ...newState, lastUpdated: Date.now() };
     });
   }, []);
 
-  const setTheme = useCallback((theme: 'light' | 'dark') => {
-    updateState(prev => ({ ...prev, theme }), false);
-  }, [updateState]);
-
   const undo = useCallback(() => {
     if (past.length === 0) return;
-    const previous = past[0];
+    const { state: previous, actionName } = past[0];
     const newPast = past.slice(1);
     
+    setFuture(f => [{ state, actionName }, ...f]);
     setPast(newPast);
     setState({ ...previous, lastUpdated: Date.now() });
-    
-    console.debug("Undo performed");
-  }, [past]);
+  }, [past, state]);
+
+  const redo = useCallback(() => {
+    if (future.length === 0) return;
+    const { state: next, actionName } = future[0];
+    const newFuture = future.slice(1);
+
+    setPast(p => [{ state, actionName }, ...p]);
+    setFuture(newFuture);
+    setState({ ...next, lastUpdated: Date.now() });
+  }, [future, state]);
 
   useEffect(() => {
     syncChannel.current = new BroadcastChannel(SYNC_CHANNEL);
@@ -105,8 +119,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     syncChannel.current?.postMessage({ type: 'STATE_UPDATE', payload: state });
-    
-    // Sync class with state for tailwind dark mode
     if (state.theme === 'dark') {
       document.documentElement.classList.add('dark');
     } else {
@@ -160,102 +172,65 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => clearTimeout(timer);
   }, [state, pushToCloud]);
 
-  // CRUD: User
-  const updateUser = (u: User) => updateState(prev => ({ ...prev, currentUser: u }), true);
+  // CRUD Actions with Action Names
+  const updateUser = (u: User) => updateState(prev => ({ ...prev, currentUser: u }), "Update Profile");
+  const setTheme = (theme: 'light' | 'dark') => updateState(prev => ({ ...prev, theme }), "Switch Theme");
 
-  // CRUD: Projects
-  const addProject = (p: Project) => updateState(prev => ({ ...prev, projects: [...prev.projects, p] }), true);
+  const addProject = (p: Project) => updateState(prev => ({ ...prev, projects: [...prev.projects, p] }), `Add Project '${p.name}'`);
   const updateProject = (p: Project) => updateState(prev => ({
     ...prev, projects: prev.projects.map(proj => proj.id === p.id ? p : proj)
-  }), true);
+  }), `Update Project '${p.name}'`);
   const deleteProject = (id: string) => updateState(prev => ({
     ...prev, projects: prev.projects.filter(p => p.id !== id)
-  }), true);
+  }), "Delete Project");
 
-  // CRUD: Vendors
-  const addVendor = (v: Vendor) => updateState(prev => ({ ...prev, vendors: [...prev.vendors, v] }), true);
+  const addVendor = (v: Vendor) => updateState(prev => ({ ...prev, vendors: [...prev.vendors, v] }), `Add Vendor '${v.name}'`);
   const updateVendor = (v: Vendor) => updateState(prev => ({
     ...prev, vendors: prev.vendors.map(vend => vend.id === v.id ? v : vend)
-  }), true);
+  }), `Update Vendor '${v.name}'`);
   const deleteVendor = (id: string) => updateState(prev => ({
     ...prev, vendors: prev.vendors.filter(v => v.id !== id)
-  }), true);
+  }), "Delete Vendor");
 
-  // CRUD: Materials
-  const addMaterial = (m: Material) => updateState(prev => ({ ...prev, materials: [...prev.materials, m] }), true);
+  const addMaterial = (m: Material) => updateState(prev => ({ ...prev, materials: [...prev.materials, m] }), `Add Material Asset '${m.name}'`);
   const updateMaterial = (m: Material) => updateState(prev => ({
     ...prev, materials: prev.materials.map(mat => mat.id === m.id ? m : mat)
-  }), true);
+  }), `Update Material '${m.name}'`);
   const deleteMaterial = (id: string) => updateState(prev => ({
     ...prev, materials: prev.materials.filter(m => m.id !== id)
-  }), true);
+  }), "Delete Material Asset");
 
-  // CRUD: Expenses
   const addExpense = (e: Expense) => updateState(prev => {
     const newVendors = e.vendorId 
       ? prev.vendors.map(v => v.id === e.vendorId ? { ...v, balance: v.balance + e.amount } : v)
       : prev.vendors;
     return { ...prev, expenses: [...prev.expenses, e], vendors: newVendors };
-  }, true);
-  const updateExpense = (e: Expense) => updateState(prev => {
-    const oldExpense = prev.expenses.find(x => x.id === e.id);
-    let newVendors = [...prev.vendors];
-    if (oldExpense) {
-      if (oldExpense.vendorId) {
-        newVendors = newVendors.map(v => v.id === oldExpense.vendorId ? { ...v, balance: v.balance - oldExpense.amount } : v);
-      }
-      if (e.vendorId) {
-        newVendors = newVendors.map(v => v.id === e.vendorId ? { ...v, balance: v.balance + e.amount } : v);
-      }
-    }
-    return {
-      ...prev,
-      expenses: prev.expenses.map(exp => exp.id === e.id ? e : exp),
-      vendors: newVendors
-    };
-  }, true);
-  const deleteExpense = (id: string) => updateState(prev => {
-    const exp = prev.expenses.find(e => e.id === id);
-    const newVendors = exp?.vendorId 
-      ? prev.vendors.map(v => v.id === exp.vendorId ? { ...v, balance: Math.max(0, v.balance - exp.amount) } : v)
-      : prev.vendors;
-    return { ...prev, expenses: prev.expenses.filter(e => e.id !== id), vendors: newVendors };
-  }, true);
+  }, "Record Expense");
+  const updateExpense = (e: Expense) => updateState(prev => ({
+    ...prev, expenses: prev.expenses.map(exp => exp.id === e.id ? e : exp)
+  }), "Update Expense");
+  const deleteExpense = (id: string) => updateState(prev => ({
+    ...prev, expenses: prev.expenses.filter(e => e.id !== id)
+  }), "Delete Expense Record");
 
-  // CRUD: Payments
   const addPayment = (pay: Payment) => updateState(prev => {
     const newVendors = prev.vendors.map(v => v.id === pay.vendorId ? { ...v, balance: Math.max(0, v.balance - pay.amount) } : v);
     return { ...prev, payments: [...prev.payments, pay], vendors: newVendors };
-  }, true);
-  const updatePayment = (p: Payment) => updateState(prev => {
-    const old = prev.payments.find(x => x.id === p.id);
-    let newVendors = [...prev.vendors];
-    if (old) {
-      newVendors = newVendors.map(v => v.id === old.vendorId ? { ...v, balance: v.balance + old.amount } : v);
-      newVendors = newVendors.map(v => v.id === p.vendorId ? { ...v, balance: Math.max(0, v.balance - p.amount) } : v);
-    }
-    return {
-      ...prev,
-      payments: prev.payments.map(pay => pay.id === p.id ? p : pay),
-      vendors: newVendors
-    };
-  }, true);
-  const deletePayment = (id: string) => updateState(prev => {
-    const pay = prev.payments.find(p => p.id === id);
-    const newVendors = pay 
-      ? prev.vendors.map(v => v.id === pay.vendorId ? { ...v, balance: v.balance + pay.amount } : v)
-      : prev.vendors;
-    return { ...prev, payments: prev.payments.filter(p => p.id !== id), vendors: newVendors };
-  }, true);
+  }, "Record Vendor Payment");
+  const updatePayment = (p: Payment) => updateState(prev => ({
+    ...prev, payments: prev.payments.map(pay => pay.id === p.id ? p : pay)
+  }), "Update Payment");
+  const deletePayment = (id: string) => updateState(prev => ({
+    ...prev, payments: prev.payments.filter(p => p.id !== id)
+  }), "Delete Payment Record");
 
-  // CRUD: Income
-  const addIncome = (i: Income) => updateState(prev => ({ ...prev, incomes: [...prev.incomes, i] }), true);
+  const addIncome = (i: Income) => updateState(prev => ({ ...prev, incomes: [...prev.incomes, i] }), "Record Project Income");
   const updateIncome = (i: Income) => updateState(prev => ({
     ...prev, incomes: prev.incomes.map(inc => inc.id === i.id ? i : inc)
-  }), true);
+  }), "Update Income");
   const deleteIncome = (id: string) => updateState(prev => ({
     ...prev, incomes: prev.incomes.filter(i => i.id !== id)
-  }), true);
+  }), "Delete Income Record");
 
   const enableCloudSync = async (id: string) => {
     setIsSyncing(true);
@@ -263,18 +238,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const res = await fetch(`${CLOUD_API}/${id}`);
       if (res.ok) {
         const cloudState = await res.json();
-        if (cloudState.lastUpdated > (state.lastUpdated || 0)) {
-          setState({ ...cloudState, syncId: id });
-        } else {
-          await pushToCloud({ ...state, syncId: id, lastUpdated: Date.now() });
-          updateState(prev => ({ ...prev, syncId: id }));
-        }
+        setState({ ...cloudState, syncId: id });
       } else {
-        await fetch(`${CLOUD_API}/${id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...state, syncId: id, lastUpdated: Date.now() })
-        });
+        await pushToCloud({ ...state, syncId: id, lastUpdated: Date.now() });
         updateState(prev => ({ ...prev, syncId: id }));
       }
       setSyncError(false);
@@ -285,14 +251,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const disableCloudSync = () => updateState(prev => ({ ...prev, syncId: undefined }));
+  const disableCloudSync = () => updateState(prev => ({ ...prev, syncId: undefined }), "Disable Cloud Sync");
   const forceSync = async () => { await pullFromCloud(); await pushToCloud(state); };
-  const loadExternalState = useCallback((newState: AppState) => updateState(() => newState), [updateState]);
+  const loadExternalState = useCallback((newState: AppState) => updateState(() => newState, "Import External Data"), [updateState]);
 
   const value = useMemo(() => ({
     ...state,
-    updateUser,
-    setTheme,
+    updateUser, setTheme,
     addProject, updateProject, deleteProject,
     addVendor, updateVendor, deleteVendor,
     addMaterial, updateMaterial, deleteMaterial,
@@ -300,9 +265,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     addPayment, updatePayment, deletePayment,
     addIncome, updateIncome, deleteIncome,
     loadExternalState, enableCloudSync, disableCloudSync, forceSync,
-    undo, canUndo: past.length > 0,
+    undo, redo, canUndo: past.length > 0, canRedo: future.length > 0,
+    lastActionName: past.length > 0 ? past[0].actionName : '',
     isSyncing, syncError, lastSynced
-  }), [state, past.length, lastSynced, isSyncing, syncError, loadExternalState, forceSync, undo, setTheme]);
+  }), [state, past.length, future.length, lastSynced, isSyncing, syncError, loadExternalState, forceSync, undo, redo, setTheme]);
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 };
