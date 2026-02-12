@@ -155,8 +155,7 @@ export const ProjectList: React.FC = () => {
         type: 'Usage',
         quantity: qty,
         projectId: viewingProject.id,
-        note: inventoryUsageForm.note || `Site Consumption: ${viewingProject.name}`,
-        unitPrice: material.costPerUnit
+        note: inventoryUsageForm.note || `Site Consumption: ${viewingProject.name}`
       }]
     });
 
@@ -392,23 +391,14 @@ export const ProjectList: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Detailed Expense Summary Section (Project Financial Drill-down) */}
+                {/* Detailed Expense Summary Section */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
                   <div className="lg:col-span-2 bg-white dark:bg-slate-800 p-6 rounded-[2rem] border border-slate-200 dark:border-slate-700 shadow-sm">
                     <div className="flex items-center justify-between mb-6">
-                      <div className="flex flex-col">
-                        <h3 className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest flex items-center gap-2">
-                          <PieChart size={16} className="text-blue-500" />
-                          Project Financial Drill-down
-                        </h3>
-                        <p className="text-[9px] text-slate-400 font-bold uppercase mt-1">Categorized Site Consumption</p>
-                      </div>
-                      <button 
-                        onClick={() => setShowInventoryUsageModal(true)}
-                        className="bg-blue-50 hover:bg-blue-100 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest flex items-center gap-2 transition-all border border-blue-100 dark:border-blue-800 shadow-sm active:scale-95"
-                      >
-                        <Package size={14} /> Allocate Stock
-                      </button>
+                      <h3 className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest flex items-center gap-2">
+                        <PieChart size={16} className="text-blue-500" />
+                        Expenditure Summary by Category
+                      </h3>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5">
                       {Object.keys(metrics.categoryBreakdown).length > 0 ? Object.entries(metrics.categoryBreakdown).map(([cat, amt]) => {
