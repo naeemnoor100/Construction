@@ -103,7 +103,10 @@ export const VendorList: React.FC = () => {
 
   const handleRecordPayment = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedVendorForPayment || !paymentFormData.projectId) return;
+    if (!selectedVendorForPayment || !paymentFormData.projectId) {
+      alert("Please select a valid project for this payment.");
+      return;
+    }
     
     const paymentData: Payment = {
       id: 'pay' + Date.now(),
@@ -122,7 +125,7 @@ export const VendorList: React.FC = () => {
 
   const handleUpdatePayment = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingPayment) return;
+    if (!editingPayment || !editPaymentFormData.projectId) return;
 
     const updatedPayment: Payment = {
       ...editingPayment,
@@ -247,7 +250,7 @@ export const VendorList: React.FC = () => {
         </div>
       </div>
 
-      {/* Detailed View Modal */}
+      {/* Detailed View Modal (Ledger) */}
       {viewingVendorDetails && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
           <div className="bg-white rounded-[2.5rem] w-full max-w-5xl h-[92vh] lg:h-[80vh] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-300">
@@ -263,8 +266,8 @@ export const VendorList: React.FC = () => {
             </div>
 
             <div className="flex border-b border-slate-100 bg-slate-50/50">
-               <button onClick={() => setActiveDetailTab('payments')} className={`px-8 py-4 text-[10px] font-bold uppercase tracking-widest transition-all ${activeDetailTab === 'payments' ? 'bg-white text-blue-600 border-b-2 border-blue-600' : 'text-slate-400'}`}>Project Payments</button>
-               <button onClick={() => setActiveDetailTab('supplies')} className={`px-8 py-4 text-[10px] font-bold uppercase tracking-widest transition-all ${activeDetailTab === 'supplies' ? 'bg-white text-emerald-600 border-b-2 border-emerald-600' : 'text-slate-400'}`}>Inventory Supply Log</button>
+               <button onClick={() => setActiveDetailTab('payments')} className={`px-8 py-4 text-[10px] font-bold uppercase tracking-widest transition-all ${activeDetailTab === 'payments' ? 'bg-white text-blue-600 border-b-2 border-blue-600' : 'text-slate-400'}`}>Payment History</button>
+               <button onClick={() => setActiveDetailTab('supplies')} className={`px-8 py-4 text-[10px] font-bold uppercase tracking-widest transition-all ${activeDetailTab === 'supplies' ? 'bg-white text-emerald-600 border-b-2 border-emerald-600' : 'text-slate-400'}`}>Supply History</button>
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-50/20 no-scrollbar">
@@ -275,9 +278,9 @@ export const VendorList: React.FC = () => {
                         <thead className="bg-slate-50 text-[10px] font-bold text-slate-400 uppercase border-b border-slate-100">
                           <tr>
                             <th className="px-6 py-4">Date</th>
-                            <th className="px-6 py-4">Associated Project</th>
+                            <th className="px-6 py-4">Project</th>
                             <th className="px-6 py-4">Method</th>
-                            <th className="px-6 py-4 text-right">Amount Settled</th>
+                            <th className="px-6 py-4 text-right">Settled Amount</th>
                             <th className="px-6 py-4 text-right">Actions</th>
                           </tr>
                         </thead>
@@ -288,15 +291,25 @@ export const VendorList: React.FC = () => {
                               <td className="px-6 py-4">
                                 <div className="flex items-center gap-2">
                                   <Briefcase size={12} className="text-blue-500" />
-                                  <span className="text-xs font-semibold text-slate-800">{projects.find(p => p.id === pay.projectId)?.name || 'General Allocation'}</span>
+                                  <span className="text-xs font-semibold text-slate-800">{projects.find(p => p.id === pay.projectId)?.name || 'N/A'}</span>
                                 </div>
                               </td>
                               <td className="px-6 py-4"><span className="px-2 py-0.5 bg-blue-50 text-blue-600 text-[9px] font-bold uppercase rounded-md border border-blue-100">{pay.method}</span></td>
                               <td className="px-6 py-4 text-xs font-bold text-emerald-600 text-right">{formatCurrency(pay.amount)}</td>
                               <td className="px-6 py-4 text-right">
-                                <div className="flex justify-end gap-1 opacity-0 group-hover/row:opacity-100 transition-opacity">
-                                  <button onClick={() => handleOpenEditPaymentModal(pay)} className="p-1.5 text-slate-400 hover:text-blue-600 transition-colors"><Pencil size={14} /></button>
-                                  <button onClick={() => handleDeletePayment(pay.id)} className="p-1.5 text-slate-400 hover:text-red-500 transition-colors"><Trash2 size={14} /></button>
+                                <div className="flex justify-end gap-1 opacity-100 lg:opacity-0 group-hover/row:opacity-100 transition-opacity">
+                                  <button 
+                                    onClick={() => handleOpenEditPaymentModal(pay)} 
+                                    className="flex items-center gap-1.5 px-3 py-1 bg-slate-100 text-blue-600 rounded-lg text-[10px] font-bold uppercase hover:bg-blue-600 hover:text-white transition-all shadow-sm"
+                                  >
+                                    <Pencil size={12} /> Edit
+                                  </button>
+                                  <button 
+                                    onClick={() => handleDeletePayment(pay.id)} 
+                                    className="p-1.5 text-slate-400 hover:text-red-500 transition-colors"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
                                 </div>
                               </td>
                             </tr>
@@ -309,7 +322,7 @@ export const VendorList: React.FC = () => {
                    ) : (
                       <table className="w-full text-left min-w-[700px]">
                         <thead className="bg-slate-50 text-[10px] font-bold text-slate-400 uppercase border-b border-slate-100">
-                          <tr><th className="px-6 py-4">Arrival Date</th><th className="px-6 py-4">Material Asset</th><th className="px-6 py-4">Quantity</th><th className="px-6 py-4">Project Delivery Site</th></tr>
+                          <tr><th className="px-6 py-4">Arrival Date</th><th className="px-6 py-4">Material Asset</th><th className="px-6 py-4">Quantity</th><th className="px-6 py-4">Delivery Site</th></tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                           {vendorSupplies.map((supply, idx) => (
@@ -346,15 +359,15 @@ export const VendorList: React.FC = () => {
                <div className="flex gap-4 items-center">
                  <div className="p-3 bg-blue-600 text-white rounded-2xl shadow-lg shadow-blue-100"><Pencil size={24} /></div>
                  <div>
-                    <h2 className="text-xl font-bold text-slate-900">Edit Payment Details</h2>
-                    <p className="text-xs text-slate-500 font-medium tracking-tight">Updating transaction ID: {editingPayment.id}</p>
+                    <h2 className="text-xl font-bold text-slate-900">Update Payment</h2>
+                    <p className="text-xs text-slate-500 font-medium tracking-tight">Modify amount or link to different project</p>
                  </div>
                </div>
                <button onClick={() => { setShowEditPaymentModal(false); setEditingPayment(null); }} className="p-2 text-slate-400 hover:text-slate-900"><X size={24} /></button>
             </div>
             <form onSubmit={handleUpdatePayment} className="p-6 space-y-4">
                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Project Assignment</label>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Linked Project</label>
                   <div className="relative">
                     <Briefcase className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                     <select 
@@ -376,7 +389,7 @@ export const VendorList: React.FC = () => {
                     </div>
                   </div>
                   <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Date</label>
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Transaction Date</label>
                     <div className="relative">
                        <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                        <input type="date" required className="w-full pl-10 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:ring-2 focus:ring-blue-500" value={editPaymentFormData.date} onChange={(e) => setEditPaymentFormData(p => ({ ...p, date: e.target.value }))} />
@@ -384,7 +397,7 @@ export const VendorList: React.FC = () => {
                   </div>
                </div>
                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Method</label>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Payment Method</label>
                   <div className="grid grid-cols-3 gap-2">
                      {(['Bank', 'Cash', 'Online'] as PaymentMethod[]).map(m => (
                        <button
@@ -398,13 +411,14 @@ export const VendorList: React.FC = () => {
                   </div>
                </div>
                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Reference</label>
-                  <input type="text" className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none" value={editPaymentFormData.reference} onChange={(e) => setEditPaymentFormData(p => ({ ...p, reference: e.target.value }))} />
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Reference Info</label>
+                  <input type="text" className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none" placeholder="Cheque # or UPI Reference" value={editPaymentFormData.reference} onChange={(e) => setEditPaymentFormData(p => ({ ...p, reference: e.target.value }))} />
                </div>
-               <button type="submit" className="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-blue-100 transition-all active:scale-95 mt-4 text-sm flex items-center justify-center gap-2">
-                 <Save size={18} />
-                 Update Payment
-               </button>
+               <div className="pt-2">
+                  <button type="submit" className="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-blue-100 transition-all active:scale-95 flex items-center justify-center gap-2">
+                    <Save size={18} /> Update Transaction
+                  </button>
+               </div>
             </form>
           </div>
         </div>
@@ -418,8 +432,8 @@ export const VendorList: React.FC = () => {
                <div className="flex gap-4 items-center">
                  <div className="p-3 bg-emerald-600 text-white rounded-2xl shadow-lg shadow-emerald-100"><DollarSign size={24} /></div>
                  <div>
-                    <h2 className="text-xl font-bold text-slate-900">Record Vendor Payment</h2>
-                    <p className="text-xs text-slate-500 font-medium">Recipient: {selectedVendorForPayment.name}</p>
+                    <h2 className="text-xl font-bold text-slate-900">New Payment</h2>
+                    <p className="text-xs text-slate-500 font-medium">To: {selectedVendorForPayment.name}</p>
                  </div>
                </div>
                <button onClick={() => { setShowPaymentModal(false); setSelectedVendorForPayment(null); }} className="p-2 text-slate-400 hover:text-slate-900"><X size={24} /></button>
@@ -430,12 +444,12 @@ export const VendorList: React.FC = () => {
                   <div className="relative">
                     <Briefcase className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                     <select 
-                      className="w-full pl-12 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl font-bold appearance-none outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                      className="w-full pl-12 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl font-bold appearance-none outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
                       value={paymentFormData.projectId}
                       onChange={(e) => setPaymentFormData(p => ({ ...p, projectId: e.target.value }))}
                       required
                     >
-                      <option value="">Select Target Project</option>
+                      <option value="">Select Project Assignment</option>
                       {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </select>
                   </div>
@@ -472,8 +486,8 @@ export const VendorList: React.FC = () => {
                   </div>
                </div>
                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Txn Reference (Optional)</label>
-                  <input type="text" placeholder="Cheque # / UTR ID" className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:ring-2 focus:ring-blue-500" value={paymentFormData.reference} onChange={(e) => setPaymentFormData(p => ({ ...p, reference: e.target.value }))} />
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Reference ID</label>
+                  <input type="text" placeholder="e.g. UTR-0982-ALPHA" className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:ring-2 focus:ring-blue-500" value={paymentFormData.reference} onChange={(e) => setPaymentFormData(p => ({ ...p, reference: e.target.value }))} />
                </div>
                <button type="submit" className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-emerald-100 transition-all active:scale-95 mt-4 text-sm flex items-center justify-center gap-2">
                  <CheckCircle2 size={20} />
@@ -520,7 +534,7 @@ export const VendorList: React.FC = () => {
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Contact Phone</label>
-                    <input type="text" placeholder="+1..." className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold" value={formData.contact} onChange={(e) => setFormData(p => ({ ...p, contact: e.target.value }))} required />
+                    <input type="text" placeholder="+91..." className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold" value={formData.contact} onChange={(e) => setFormData(p => ({ ...p, contact: e.target.value }))} required />
                   </div>
                 </div>
                 <div className="space-y-1.5">
