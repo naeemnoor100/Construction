@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Briefcase, 
   TrendingDown, 
@@ -58,6 +58,14 @@ export const Dashboard: React.FC = () => {
   const [formData, setFormData] = useState({
     name: '', client: '', location: '', budget: '', startDate: new Date().toISOString().split('T')[0], endDate: '', description: ''
   });
+
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowModal(false);
+    };
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, []);
 
   const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
   const totalIncome = incomes.reduce((sum, i) => sum + i.amount, 0);

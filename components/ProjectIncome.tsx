@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   ArrowUpCircle, 
   Plus, 
@@ -35,6 +35,17 @@ export const ProjectIncome: React.FC = () => {
     date: new Date().toISOString().split('T')[0], 
     method: 'Bank' as PaymentMethod
   });
+
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowModal(false);
+        setEditingIncome(null);
+      }
+    };
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, []);
 
   const handleCreateOrUpdateIncome = (e: React.FormEvent) => {
     e.preventDefault();

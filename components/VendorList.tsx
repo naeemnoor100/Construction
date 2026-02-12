@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Users, 
   Search, 
@@ -14,7 +14,9 @@ import {
   Calendar,
   CreditCard,
   ArrowRightLeft,
-  CheckCircle2
+  CheckCircle2,
+  AlertCircle,
+  Save
 } from 'lucide-react';
 import { useApp } from '../AppContext';
 import { Vendor, VendorCategory, Payment, PaymentMethod, Project } from '../types';
@@ -31,6 +33,10 @@ export const VendorList: React.FC = () => {
   const [activeDetailTab, setActiveDetailTab] = useState<'payments' | 'supplies'>('payments');
   const [selectedVendorForPayment, setSelectedVendorForPayment] = useState<Vendor | null>(null);
   
+  // State for editing an existing payment
+  const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
+  const [showEditPaymentModal, setShowEditPaymentModal] = useState(false);
+
   const [formData, setFormData] = useState({
     name: '', contact: '', category: 'Material' as VendorCategory, email: '', balance: ''
   });
@@ -43,6 +49,27 @@ export const VendorList: React.FC = () => {
     reference: ''
   });
 
+  const [editPaymentFormData, setEditPaymentFormData] = useState({
+    projectId: '',
+    amount: '',
+    method: 'Bank' as PaymentMethod,
+    date: '',
+    reference: ''
+  });
+
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowModal(false);
+        setShowPaymentModal(false);
+        setShowEditPaymentModal(false);
+        setViewingVendorDetails(null);
+      }
+    };
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, []);
+
   const filteredVendors = useMemo(() => {
     return vendors.filter(v => 
       v.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -52,7 +79,6 @@ export const VendorList: React.FC = () => {
 
   const handleOpenPaymentModal = (vendor: Vendor) => {
     setSelectedVendorForPayment(vendor);
-    // Pre-fill with first project if available
     setPaymentFormData({
       projectId: projects[0]?.id || '',
       amount: '',
@@ -61,6 +87,18 @@ export const VendorList: React.FC = () => {
       reference: ''
     });
     setShowPaymentModal(true);
+  };
+
+  const handleOpenEditPaymentModal = (payment: Payment) => {
+    setEditingPayment(payment);
+    setEditPaymentFormData({
+      projectId: payment.projectId,
+      amount: payment.amount.toString(),
+      method: payment.method,
+      date: payment.date,
+      reference: payment.reference || ''
+    });
+    setShowEditPaymentModal(true);
   };
 
   const handleRecordPayment = (e: React.FormEvent) => {
@@ -80,6 +118,42 @@ export const VendorList: React.FC = () => {
     addPayment(paymentData);
     setShowPaymentModal(false);
     setSelectedVendorForPayment(null);
+  };
+
+  const handleUpdatePayment = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingPayment) return;
+
+    const updatedPayment: Payment = {
+      ...editingPayment,
+      projectId: editPaymentFormData.projectId,
+      amount: parseFloat(editPaymentFormData.amount) || 0,
+      method: editPaymentFormData.method,
+      date: editPaymentFormData.date,
+      reference: editPaymentFormData.reference
+    };
+
+    updatePayment(updatedPayment);
+    setShowEditPaymentModal(false);
+    setEditingPayment(null);
+  };
+
+  const handleDeletePayment = (id: string) => {
+    if (confirm("Are you sure you want to delete this payment record? This will adjust the vendor's outstanding balance.")) {
+      deletePayment(id);
+    }
+  };
+
+  const handleEditVendor = (v: Vendor) => {
+    setEditingVendor(v);
+    setFormData({
+      name: v.name,
+      contact: v.contact,
+      category: v.category,
+      email: v.email,
+      balance: v.balance.toString()
+    });
+    setShowModal(true);
   };
 
   const vendorSupplies = useMemo(() => {
@@ -103,7 +177,7 @@ export const VendorList: React.FC = () => {
           <p className="text-slate-500 text-sm">Oversee suppliers and site-specific payment settlements.</p>
         </div>
         <button 
-          onClick={() => { setEditingVendor(null); setShowModal(true); }}
+          onClick={() => { setEditingVendor(null); setShowModal(true); setFormData({ name: '', contact: '', category: 'Material', email: '', balance: '' }); }}
           className="w-full sm:w-auto bg-blue-600 text-white px-5 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-blue-100 hover:bg-blue-700 active:scale-95 transition-all"
         >
           <Plus size={20} /> Add Vendor
@@ -154,15 +228,16 @@ export const VendorList: React.FC = () => {
                     </p>
                   </td>
                   <td className="px-6 py-4 text-right">
-                    <div className="flex justify-end gap-2">
+                    <div className="flex justify-end gap-1">
                        <button 
                         onClick={() => handleOpenPaymentModal(vendor)}
                         className="bg-emerald-600 text-white px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider hover:bg-emerald-700 transition-all flex items-center gap-1.5 shadow-md active:scale-95"
                        >
-                         <DollarSign size={12} /> Record Payment
+                         <DollarSign size={12} /> Pay
                        </button>
-                       <button onClick={() => setViewingVendorDetails(vendor)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all" title="Ledger Details"><History size={16} /></button>
-                       <button onClick={() => confirm(`Delete vendor ${vendor.name}?`) && deleteVendor(vendor.id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"><Trash2 size={16} /></button>
+                       <button onClick={() => setViewingVendorDetails(vendor)} className="p-2 text-slate-400 hover:text-blue-600" title="Ledger Details"><History size={16} /></button>
+                       <button onClick={() => handleEditVendor(vendor)} className="p-2 text-slate-400 hover:text-emerald-600" title="Edit Vendor"><Pencil size={16} /></button>
+                       <button onClick={() => confirm(`Delete vendor ${vendor.name}?`) && deleteVendor(vendor.id)} className="p-2 text-slate-400 hover:text-red-600" title="Delete Vendor"><Trash2 size={16} /></button>
                     </div>
                   </td>
                 </tr>
@@ -196,13 +271,19 @@ export const VendorList: React.FC = () => {
                <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
                  <div className="overflow-x-auto">
                    {activeDetailTab === 'payments' ? (
-                      <table className="w-full text-left min-w-[600px]">
+                      <table className="w-full text-left min-w-[700px]">
                         <thead className="bg-slate-50 text-[10px] font-bold text-slate-400 uppercase border-b border-slate-100">
-                          <tr><th className="px-6 py-4">Date</th><th className="px-6 py-4">Associated Project</th><th className="px-6 py-4">Method</th><th className="px-6 py-4 text-right">Amount Settled</th></tr>
+                          <tr>
+                            <th className="px-6 py-4">Date</th>
+                            <th className="px-6 py-4">Associated Project</th>
+                            <th className="px-6 py-4">Method</th>
+                            <th className="px-6 py-4 text-right">Amount Settled</th>
+                            <th className="px-6 py-4 text-right">Actions</th>
+                          </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                           {payments.filter(p => p.vendorId === viewingVendorDetails.id).map(pay => (
-                            <tr key={pay.id} className="hover:bg-slate-50 transition-colors">
+                            <tr key={pay.id} className="hover:bg-slate-50 transition-colors group/row">
                               <td className="px-6 py-4 text-xs font-bold text-slate-500">{new Date(pay.date).toLocaleDateString()}</td>
                               <td className="px-6 py-4">
                                 <div className="flex items-center gap-2">
@@ -212,10 +293,16 @@ export const VendorList: React.FC = () => {
                               </td>
                               <td className="px-6 py-4"><span className="px-2 py-0.5 bg-blue-50 text-blue-600 text-[9px] font-bold uppercase rounded-md border border-blue-100">{pay.method}</span></td>
                               <td className="px-6 py-4 text-xs font-bold text-emerald-600 text-right">{formatCurrency(pay.amount)}</td>
+                              <td className="px-6 py-4 text-right">
+                                <div className="flex justify-end gap-1 opacity-0 group-hover/row:opacity-100 transition-opacity">
+                                  <button onClick={() => handleOpenEditPaymentModal(pay)} className="p-1.5 text-slate-400 hover:text-blue-600 transition-colors"><Pencil size={14} /></button>
+                                  <button onClick={() => handleDeletePayment(pay.id)} className="p-1.5 text-slate-400 hover:text-red-500 transition-colors"><Trash2 size={14} /></button>
+                                </div>
+                              </td>
                             </tr>
                           ))}
                           {payments.filter(p => p.vendorId === viewingVendorDetails.id).length === 0 && (
-                            <tr><td colSpan={4} className="py-20 text-center text-[10px] font-bold text-slate-300 uppercase tracking-widest">No payment records found</td></tr>
+                            <tr><td colSpan={5} className="py-20 text-center text-[10px] font-bold text-slate-300 uppercase tracking-widest">No payment records found</td></tr>
                           )}
                         </tbody>
                       </table>
@@ -247,6 +334,78 @@ export const VendorList: React.FC = () => {
                  </div>
                </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Payment Modal */}
+      {showEditPaymentModal && editingPayment && (
+        <div className="fixed inset-0 z-[140] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
+          <div className="bg-white rounded-[2rem] w-full max-w-lg shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-blue-50/30 shrink-0">
+               <div className="flex gap-4 items-center">
+                 <div className="p-3 bg-blue-600 text-white rounded-2xl shadow-lg shadow-blue-100"><Pencil size={24} /></div>
+                 <div>
+                    <h2 className="text-xl font-bold text-slate-900">Edit Payment Details</h2>
+                    <p className="text-xs text-slate-500 font-medium tracking-tight">Updating transaction ID: {editingPayment.id}</p>
+                 </div>
+               </div>
+               <button onClick={() => { setShowEditPaymentModal(false); setEditingPayment(null); }} className="p-2 text-slate-400 hover:text-slate-900"><X size={24} /></button>
+            </div>
+            <form onSubmit={handleUpdatePayment} className="p-6 space-y-4">
+               <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Project Assignment</label>
+                  <div className="relative">
+                    <Briefcase className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                    <select 
+                      className="w-full pl-12 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl font-bold appearance-none outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                      value={editPaymentFormData.projectId}
+                      onChange={(e) => setEditPaymentFormData(p => ({ ...p, projectId: e.target.value }))}
+                      required
+                    >
+                      {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                  </div>
+               </div>
+               <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Amount (Rs.)</label>
+                    <div className="relative">
+                       <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                       <input type="number" step="0.01" required className="w-full pl-10 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:ring-2 focus:ring-blue-500" value={editPaymentFormData.amount} onChange={(e) => setEditPaymentFormData(p => ({ ...p, amount: e.target.value }))} />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Date</label>
+                    <div className="relative">
+                       <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                       <input type="date" required className="w-full pl-10 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:ring-2 focus:ring-blue-500" value={editPaymentFormData.date} onChange={(e) => setEditPaymentFormData(p => ({ ...p, date: e.target.value }))} />
+                    </div>
+                  </div>
+               </div>
+               <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Method</label>
+                  <div className="grid grid-cols-3 gap-2">
+                     {(['Bank', 'Cash', 'Online'] as PaymentMethod[]).map(m => (
+                       <button
+                         key={m} type="button"
+                         onClick={() => setEditPaymentFormData(p => ({ ...p, method: m }))}
+                         className={`py-2.5 rounded-xl text-[10px] font-bold uppercase tracking-widest border transition-all ${editPaymentFormData.method === m ? 'bg-blue-600 border-blue-600 text-white shadow-lg' : 'bg-white border-slate-200 text-slate-500 hover:bg-blue-50'}`}
+                       >
+                         {m}
+                       </button>
+                     ))}
+                  </div>
+               </div>
+               <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Reference</label>
+                  <input type="text" className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none" value={editPaymentFormData.reference} onChange={(e) => setEditPaymentFormData(p => ({ ...p, reference: e.target.value }))} />
+               </div>
+               <button type="submit" className="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-blue-100 transition-all active:scale-95 mt-4 text-sm flex items-center justify-center gap-2">
+                 <Save size={18} />
+                 Update Payment
+               </button>
+            </form>
           </div>
         </div>
       )}

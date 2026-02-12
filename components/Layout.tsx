@@ -90,12 +90,11 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
     { id: 'materials', label: 'Inventory', icon: <Package size={20} /> },
     { id: 'expenses', label: 'Expenses', icon: <Receipt size={20} /> },
     { id: 'reports', label: 'Reports', icon: <BarChart3 size={20} /> },
-    { id: 'ai-assistant', label: 'AI', icon: <Sparkles size={20} />, isSpecial: true },
+    { id: 'ai-assistant', label: 'AI Helper', icon: <Sparkles size={20} />, isSpecial: true },
   ];
 
   return (
     <div className="flex min-h-screen bg-slate-50 overflow-hidden">
-      {/* Sidebar for Desktop / Overlay for Mobile */}
       <div 
         className={`fixed inset-0 bg-slate-900/60 z-[60] backdrop-blur-sm transition-opacity duration-300 lg:hidden ${
           isSidebarOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
@@ -148,7 +147,6 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
       </aside>
 
       <main className="flex-1 flex flex-col h-screen overflow-hidden">
-        {/* Header */}
         <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 lg:px-6 shrink-0 z-40">
           <div className="flex items-center gap-2 lg:gap-4">
             <button 
@@ -161,7 +159,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
               <input 
                 type="text" 
-                placeholder="Quick search..." 
+                placeholder="Search resources..." 
                 className="pl-10 pr-4 py-2 bg-slate-100 border-none rounded-lg text-sm focus:ring-2 focus:ring-blue-500 w-48 xl:w-64 transition-all"
               />
             </div>
@@ -173,7 +171,6 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
           </div>
 
           <div className="flex items-center gap-2 lg:gap-4">
-            {/* Sync Button */}
             <button 
               onClick={() => setShowSyncCenter(true)}
               className={`flex items-center gap-2 px-2.5 py-1.5 border rounded-xl transition-all shadow-sm ${
@@ -188,7 +185,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
                 <WifiOff size={14} className="text-slate-400" />
               )}
               <span className="hidden sm:inline text-[10px] font-bold uppercase text-slate-600">
-                {syncId ? 'Cloud' : 'Local'}
+                {syncId ? 'Cloud' : 'Offline'}
               </span>
             </button>
 
@@ -203,34 +200,28 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
           </div>
         </header>
 
-        {/* Content Area */}
         <div className="flex-1 overflow-y-auto p-4 lg:p-6 bg-slate-50 pb-24 lg:pb-6">
           <div className="max-w-7xl mx-auto h-full">
             {children}
           </div>
         </div>
 
-        {/* Mobile Bottom Navigation */}
         <div className="lg:hidden fixed bottom-0 left-0 right-0 h-20 bg-white border-t border-slate-200 flex items-center justify-around px-2 z-50 pb-safe shadow-[0_-4px_10px_rgba(0,0,0,0.05)]">
           <MobileNavItem 
-            label="Home" icon={<LayoutDashboard />} 
+            label="Dashboard" icon={<LayoutDashboard />} 
             isActive={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} 
           />
           <MobileNavItem 
-            label="Sites" icon={<Briefcase />} 
+            label="Projects" icon={<Briefcase />} 
             isActive={activeTab === 'projects'} onClick={() => setActiveTab('projects')} 
           />
           <MobileNavItem 
-            label="Inventory" icon={<Package />} 
-            isActive={activeTab === 'materials'} onClick={() => setActiveTab('materials')} 
+            label="Suppliers" icon={<Users />} 
+            isActive={activeTab === 'vendors'} onClick={() => setActiveTab('vendors')} 
           />
           <MobileNavItem 
-            label="Expense" icon={<Receipt />} 
+            label="Finance" icon={<Receipt />} 
             isActive={activeTab === 'expenses'} onClick={() => setActiveTab('expenses')} 
-          />
-          <MobileNavItem 
-            label="Ask AI" icon={<Sparkles />} 
-            isActive={activeTab === 'ai-assistant'} onClick={() => setActiveTab('ai-assistant')} 
           />
         </div>
       </main>

@@ -1,8 +1,8 @@
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { 
   BarChart as RechartsBarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
-  AreaChart, Area, Legend, PieChart as RechartsPieChart, Pie, Cell
+  AreaChart, Area, Legend, PieChart as RechartsPieChart, Pie, Cell, LineChart, Line
 } from 'recharts';
 import { 
   Download, 
@@ -15,7 +15,9 @@ import {
   ArrowUpCircle,
   Briefcase,
   Users,
-  Target
+  Target,
+  Package,
+  ChevronDown
 } from 'lucide-react';
 import { useApp } from '../AppContext';
 
@@ -23,6 +25,7 @@ const formatCurrency = (val: number) => `Rs. ${val.toLocaleString('en-IN')}`;
 
 export const Reports: React.FC = () => {
   const { projects, expenses, materials, incomes, vendors } = useApp();
+  const [materialProjectFilter, setMaterialProjectFilter] = useState<string>('All');
 
   // Financial Health Data
   const financialData = useMemo(() => projects.map(p => {
@@ -43,13 +46,40 @@ export const Reports: React.FC = () => {
     value: (m.totalPurchased - m.totalUsed) * m.costPerUnit
   })).filter(m => m.value > 0), [materials]);
 
+  // Material Consumption Trend (Aggregated from Expenses)
+  const materialTrendData = useMemo(() => {
+    const materialExpenses = expenses.filter(e => {
+      const isMaterial = e.category === 'Material';
+      const matchesProject = materialProjectFilter === 'All' || e.projectId === materialProjectFilter;
+      return isMaterial && matchesProject;
+    });
+
+    const monthlyAggregation: Record<string, number> = {};
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    
+    // Sort expenses by date
+    const sortedExpenses = [...materialExpenses].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    sortedExpenses.forEach(exp => {
+      const date = new Date(exp.date);
+      const monthYear = `${months[date.getMonth()]} ${date.getFullYear().toString().slice(-2)}`;
+      monthlyAggregation[monthYear] = (monthlyAggregation[monthYear] || 0) + exp.amount;
+    });
+
+    return Object.entries(monthlyAggregation).map(([month, amount]) => ({
+      month,
+      amount
+    })).slice(-6); // Show last 6 active months
+  }, [expenses, materialProjectFilter]);
+
   // Detailed Expense Breakdown per Project
   const projectExpenseDrilldown = useMemo(() => {
     return projects.map(project => {
       const projectExpenses = expenses.filter(e => e.projectId === project.id);
       const total = projectExpenses.reduce((sum, e) => sum + e.amount, 0);
       
-      const categories = ['Material', 'Labor', 'Overhead', 'Permit'] as const;
+      // Included 'Equipment' in categories list to align with updated types and constants.
+      const categories = ['Material', 'Labor', 'Equipment', 'Overhead', 'Permit'] as const;
       const categoryBreakdown = categories.map(cat => ({
         category: cat,
         amount: projectExpenses.filter(e => e.category === cat).reduce((sum, e) => sum + e.amount, 0)
@@ -100,7 +130,7 @@ export const Reports: React.FC = () => {
         {/* Budget vs Actual vs Income */}
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
           <div className="flex justify-between items-center mb-6">
-            <h3 className="font-bold text-slate-900 flex items-center gap-2">
+            <h3 className="font-bold text-slate-900 flex items-center gap-2 text-sm uppercase tracking-tight">
               <LucideBarChart size={18} className="text-blue-600" />
               Project Cash Flow (Income vs Expense)
             </h3>
@@ -124,10 +154,62 @@ export const Reports: React.FC = () => {
           </div>
         </div>
 
+        {/* Material Consumption Trend - NEW */}
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+          <div className="flex justify-between items-center mb-6">
+            <div className="flex flex-col">
+              <h3 className="font-bold text-slate-900 flex items-center gap-2 text-sm uppercase tracking-tight">
+                <Package size={18} className="text-blue-500" />
+                Material Consumption Trend
+              </h3>
+              <p className="text-[10px] text-slate-400 font-bold uppercase mt-1">Monthly Procurement Values</p>
+            </div>
+            <div className="relative">
+              <select 
+                value={materialProjectFilter}
+                onChange={(e) => setMaterialProjectFilter(e.target.value)}
+                className="pl-3 pr-8 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[10px] font-bold uppercase tracking-widest outline-none focus:ring-2 focus:ring-blue-500 appearance-none"
+              >
+                <option value="All">Global Store</option>
+                {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={12} />
+            </div>
+          </div>
+          <div className="h-80">
+            {materialTrendData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={materialTrendData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                  <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 10}} />
+                  <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 10}} />
+                  <Tooltip 
+                    formatter={(val: number) => formatCurrency(val)}
+                    contentStyle={{borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', fontSize: '11px', fontWeight: 'bold'}}
+                  />
+                  <Line 
+                    type="monotone" 
+                    dataKey="amount" 
+                    stroke="#3b82f6" 
+                    strokeWidth={3} 
+                    dot={{ fill: '#3b82f6', strokeWidth: 2, r: 4, stroke: '#fff' }}
+                    activeDot={{ r: 6, strokeWidth: 0 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center text-slate-300">
+                <Package size={48} className="opacity-20 mb-2" strokeWidth={1} />
+                <p className="text-[10px] font-bold uppercase tracking-widest">No material expenses recorded</p>
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Inventory Value Distribution */}
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
           <div className="flex justify-between items-center mb-6">
-            <h3 className="font-bold text-slate-900 flex items-center gap-2">
+            <h3 className="font-bold text-slate-900 flex items-center gap-2 text-sm uppercase tracking-tight">
               <LucidePieChart size={18} className="text-emerald-600" />
               Stock Asset Distribution
             </h3>
@@ -156,9 +238,9 @@ export const Reports: React.FC = () => {
         </div>
 
         {/* Revenue Trends */}
-        <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
            <div className="flex justify-between items-center mb-6">
-              <h3 className="font-bold text-slate-900 flex items-center gap-2">
+              <h3 className="font-bold text-slate-900 flex items-center gap-2 text-sm uppercase tracking-tight">
                 <ArrowUpCircle size={18} className="text-emerald-600" />
                 Collection vs Expenditure Timeline
               </h3>

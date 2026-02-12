@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Cloud, 
   RefreshCw, 
@@ -25,6 +25,14 @@ export const SyncCenter: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const [isLinkShared, setIsLinkShared] = useState(false);
   const [cloudKeyInput, setCloudKeyInput] = useState(state.syncId || '');
   const [isActivating, setIsActivating] = useState(false);
+
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [onClose]);
 
   const generateNewKey = () => {
     const newKey = Math.random().toString(36).substring(2, 10) + Math.random().toString(36).substring(2, 10);

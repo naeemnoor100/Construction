@@ -68,7 +68,8 @@ export interface Expense {
   paymentMethod: PaymentMethod;
   notes: string;
   invoiceUrl?: string;
-  category: 'Material' | 'Labor' | 'Overhead' | 'Permit';
+  // Added 'Equipment' to the category union to support initial mock data and vendor types.
+  category: 'Material' | 'Labor' | 'Equipment' | 'Overhead' | 'Permit';
 }
 
 export interface Payment {

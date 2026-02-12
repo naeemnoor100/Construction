@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Plus, 
   MapPin, 
@@ -16,7 +16,9 @@ import {
   Hash,
   AlertCircle,
   Receipt,
-  ArrowDownCircle
+  ArrowDownCircle,
+  Wallet,
+  Save
 } from 'lucide-react';
 import { useApp } from '../AppContext';
 import { ProjectStatus, Project, Expense, Income, PaymentMethod } from '../types';
@@ -27,7 +29,8 @@ export const ProjectList: React.FC = () => {
   const { 
     projects, expenses, vendors, materials, incomes, 
     addProject, updateProject, deleteProject, 
-    addExpense, addIncome, updateMaterial 
+    addExpense, updateExpense, deleteExpense,
+    addIncome, updateIncome, deleteIncome, updateMaterial 
   } = useApp();
   
   const [filter, setFilter] = useState<ProjectStatus | 'All'>('All');
@@ -38,6 +41,25 @@ export const ProjectList: React.FC = () => {
   
   const [showQuickExpense, setShowQuickExpense] = useState(false);
   const [showQuickIncome, setShowQuickIncome] = useState(false);
+
+  // States for editing entries within insights
+  const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
+  const [editingIncome, setEditingIncome] = useState<Income | null>(null);
+
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowModal(false);
+        setViewingProject(null);
+        setShowQuickExpense(false);
+        setShowQuickIncome(false);
+        setEditingExpense(null);
+        setEditingIncome(null);
+      }
+    };
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, []);
 
   const [formData, setFormData] = useState({
     name: '', client: '', location: '', budget: '', startDate: new Date().toISOString().split('T')[0], endDate: '', description: ''
@@ -64,12 +86,12 @@ export const ProjectList: React.FC = () => {
     return { totalSpent, totalCollected, progress };
   };
 
-  const handleQuickExpense = (e: React.FormEvent) => {
+  const handleQuickExpenseSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!viewingProject) return;
 
-    addExpense({
-      id: 'e' + Date.now(),
+    const data: Expense = {
+      id: editingExpense ? editingExpense.id : 'e' + Date.now(),
       date: expenseFormData.date,
       projectId: viewingProject.id,
       vendorId: expenseFormData.vendorId || undefined,
@@ -77,27 +99,71 @@ export const ProjectList: React.FC = () => {
       paymentMethod: expenseFormData.paymentMethod,
       category: expenseFormData.category,
       notes: expenseFormData.notes || `Project ${expenseFormData.category} cost`
-    });
+    };
+
+    if (editingExpense) {
+      updateExpense(data);
+    } else {
+      addExpense(data);
+    }
 
     setShowQuickExpense(false);
+    setEditingExpense(null);
     setExpenseFormData({ amount: '', date: new Date().toISOString().split('T')[0], category: 'Material', vendorId: '', notes: '', paymentMethod: 'Bank' });
   };
 
-  const handleQuickIncome = (e: React.FormEvent) => {
+  const handleQuickIncomeSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!viewingProject) return;
 
-    addIncome({
-      id: 'inc' + Date.now(),
+    const data: Income = {
+      id: editingIncome ? editingIncome.id : 'inc' + Date.now(),
       projectId: viewingProject.id,
       date: incomeFormData.date,
       amount: parseFloat(incomeFormData.amount) || 0,
       description: incomeFormData.description || 'Milestone Payment',
       method: incomeFormData.method
-    });
+    };
+
+    if (editingIncome) {
+      updateIncome(data);
+    } else {
+      addIncome(data);
+    }
 
     setShowQuickIncome(false);
+    setEditingIncome(null);
     setIncomeFormData({ amount: '', date: new Date().toISOString().split('T')[0], description: '', method: 'Bank' });
+  };
+
+  const handleEditExpense = (exp: Expense) => {
+    setEditingExpense(exp);
+    setExpenseFormData({
+      amount: exp.amount.toString(),
+      date: exp.date,
+      category: exp.category,
+      vendorId: exp.vendorId || '',
+      notes: exp.notes,
+      paymentMethod: exp.paymentMethod
+    });
+    setShowQuickExpense(true);
+  };
+
+  const handleEditIncome = (inc: Income) => {
+    setEditingIncome(inc);
+    setIncomeFormData({
+      amount: inc.amount.toString(),
+      date: inc.date,
+      description: inc.description,
+      method: inc.method
+    });
+    setShowQuickIncome(true);
+  };
+
+  const handleDeleteProject = (id: string, name: string) => {
+    if (confirm(`Are you sure you want to delete ${name}? This will remove all project history.`)) {
+      deleteProject(id);
+    }
   };
 
   return (
@@ -137,8 +203,31 @@ export const ProjectList: React.FC = () => {
                   <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest ${project.status === 'Active' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
                     {project.status}
                   </span>
-                  <div className="flex gap-1">
-                    <button onClick={() => { setEditingProject(project); setFormData({ name: project.name, client: project.client, location: project.location, budget: project.budget.toString(), startDate: project.startDate, endDate: project.endDate, description: project.description || '' }); setShowModal(true); }} className="p-1.5 text-slate-400 hover:text-blue-600"><Pencil size={14} /></button>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => { 
+                        setEditingProject(project); 
+                        setFormData({ 
+                          name: project.name, 
+                          client: project.client, 
+                          location: project.location, 
+                          budget: project.budget.toString(), 
+                          startDate: project.startDate, 
+                          endDate: project.endDate, 
+                          description: project.description || '' 
+                        }); 
+                        setShowModal(true); 
+                      }} 
+                      className="p-1.5 text-slate-400 hover:text-blue-600"
+                    >
+                      <Pencil size={14} />
+                    </button>
+                    <button 
+                      onClick={() => handleDeleteProject(project.id, project.name)}
+                      className="p-1.5 text-slate-400 hover:text-red-600"
+                    >
+                      <Trash2 size={14} />
+                    </button>
                   </div>
                 </div>
                 <h3 className="text-lg font-bold text-slate-900">{project.name}</h3>
@@ -182,7 +271,7 @@ export const ProjectList: React.FC = () => {
       {/* Insights Modal */}
       {viewingProject && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
-          <div className="bg-white rounded-[2rem] w-full max-w-5xl h-[92vh] lg:h-[85vh] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-300">
+          <div className="bg-white rounded-[2rem] w-full max-w-6xl h-[92vh] lg:h-[85vh] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-300">
             <div className="p-6 sm:p-8 border-b border-slate-100 flex justify-between items-center shrink-0">
               <div className="flex gap-4">
                 <div className="p-3 bg-blue-600 text-white rounded-2xl hidden sm:block"><Briefcase size={28} /></div>
@@ -195,7 +284,7 @@ export const ProjectList: React.FC = () => {
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 sm:p-8 bg-slate-50/20 no-scrollbar">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
                 <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Total Budget</p>
                    <p className="text-xl font-bold text-slate-900">{formatCurrency(viewingProject.budget)}</p>
@@ -208,6 +297,17 @@ export const ProjectList: React.FC = () => {
                    <p className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest mb-1">Revenue Collected</p>
                    <p className="text-xl font-bold text-emerald-600">{formatCurrency(calculateProjectMetrics(viewingProject.id, viewingProject.budget).totalCollected)}</p>
                 </div>
+                <div className="bg-blue-600 p-6 rounded-2xl shadow-lg shadow-blue-100 text-white">
+                   <div className="flex justify-between items-start">
+                     <div>
+                       <p className="text-[10px] font-bold text-white/70 uppercase tracking-widest mb-1">Remaining Budget</p>
+                       <p className="text-xl font-bold">
+                         {formatCurrency(viewingProject.budget - calculateProjectMetrics(viewingProject.id, viewingProject.budget).totalSpent)}
+                       </p>
+                     </div>
+                     <Wallet size={20} className="text-white/40" />
+                   </div>
+                </div>
               </div>
 
               <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm flex flex-col">
@@ -218,11 +318,11 @@ export const ProjectList: React.FC = () => {
                   </div>
                   <div className="p-4 sm:p-0 flex gap-2 w-full sm:w-auto">
                     {activeDetailTab === 'expenses' ? (
-                      <button onClick={() => setShowQuickExpense(true)} className="flex-1 sm:flex-none bg-red-600 text-white px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-red-700 shadow-lg active:scale-95 transition-all">
+                      <button onClick={() => { setEditingExpense(null); setShowQuickExpense(true); }} className="flex-1 sm:flex-none bg-red-600 text-white px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-red-700 shadow-lg active:scale-95 transition-all">
                         <Receipt size={14} /> Record Expense
                       </button>
                     ) : (
-                      <button onClick={() => setShowQuickIncome(true)} className="flex-1 sm:flex-none bg-emerald-600 text-white px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-emerald-700 shadow-lg active:scale-95 transition-all">
+                      <button onClick={() => { setEditingIncome(null); setShowQuickIncome(true); }} className="flex-1 sm:flex-none bg-emerald-600 text-white px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-emerald-700 shadow-lg active:scale-95 transition-all">
                         <ArrowDownCircle size={14} /> Record Income
                       </button>
                     )}
@@ -230,25 +330,42 @@ export const ProjectList: React.FC = () => {
                 </div>
                 
                 <div className="overflow-x-auto no-scrollbar">
-                   <table className="w-full text-left min-w-[600px]">
+                   <table className="w-full text-left min-w-[700px]">
                      <thead className="bg-slate-50/50 text-[10px] font-bold text-slate-400 uppercase border-b border-slate-100">
-                       <tr><th className="px-6 py-4">Date</th><th className="px-6 py-4">Description</th><th className="px-6 py-4 text-right">Amount</th></tr>
+                       <tr>
+                        <th className="px-6 py-4">Date</th>
+                        <th className="px-6 py-4">Description</th>
+                        <th className="px-6 py-4 text-right">Amount</th>
+                        <th className="px-6 py-4 text-right">Actions</th>
+                       </tr>
                      </thead>
                      <tbody className="divide-y divide-slate-100">
                         {activeDetailTab === 'expenses' ? (
                           expenses.filter(e => e.projectId === viewingProject.id).map(e => (
-                            <tr key={e.id} className="hover:bg-slate-50 transition-colors">
+                            <tr key={e.id} className="hover:bg-slate-50 transition-colors group/row">
                               <td className="px-6 py-4 text-xs font-bold text-slate-500">{new Date(e.date).toLocaleDateString()}</td>
                               <td className="px-6 py-4 text-sm font-semibold text-slate-800">{e.notes}</td>
                               <td className="px-6 py-4 text-sm font-bold text-red-600 text-right">{formatCurrency(e.amount)}</td>
+                              <td className="px-6 py-4 text-right">
+                                <div className="flex justify-end gap-2 opacity-0 group-hover/row:opacity-100 transition-opacity">
+                                  <button onClick={() => handleEditExpense(e)} className="p-1 text-slate-400 hover:text-blue-600"><Pencil size={14} /></button>
+                                  <button onClick={() => deleteExpense(e.id)} className="p-1 text-slate-400 hover:text-red-600"><Trash2 size={14} /></button>
+                                </div>
+                              </td>
                             </tr>
                           ))
                         ) : (
                           incomes.filter(i => i.projectId === viewingProject.id).map(i => (
-                            <tr key={i.id} className="hover:bg-slate-50 transition-colors">
+                            <tr key={i.id} className="hover:bg-slate-50 transition-colors group/row">
                               <td className="px-6 py-4 text-xs font-bold text-slate-500">{new Date(i.date).toLocaleDateString()}</td>
                               <td className="px-6 py-4 text-sm font-semibold text-slate-800">{i.description}</td>
                               <td className="px-6 py-4 text-sm font-bold text-emerald-600 text-right">{formatCurrency(i.amount)}</td>
+                              <td className="px-6 py-4 text-right">
+                                <div className="flex justify-end gap-2 opacity-0 group-hover/row:opacity-100 transition-opacity">
+                                  <button onClick={() => handleEditIncome(i)} className="p-1 text-slate-400 hover:text-blue-600"><Pencil size={14} /></button>
+                                  <button onClick={() => deleteIncome(i.id)} className="p-1 text-slate-400 hover:text-red-600"><Trash2 size={14} /></button>
+                                </div>
+                              </td>
                             </tr>
                           ))
                         )}
@@ -269,10 +386,10 @@ export const ProjectList: React.FC = () => {
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
            <div className="bg-white rounded-[2rem] w-full max-w-lg shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
               <div className="p-6 border-b border-slate-100 bg-red-50/30 flex justify-between items-center">
-                 <h2 className="text-xl font-bold text-slate-900">Record Site Expense</h2>
-                 <button onClick={() => setShowQuickExpense(false)}><X size={24} className="text-slate-400" /></button>
+                 <h2 className="text-xl font-bold text-slate-900">{editingExpense ? 'Modify Site Expense' : 'Record Site Expense'}</h2>
+                 <button onClick={() => { setShowQuickExpense(false); setEditingExpense(null); }}><X size={24} className="text-slate-400" /></button>
               </div>
-              <form onSubmit={handleQuickExpense} className="p-6 space-y-4">
+              <form onSubmit={handleQuickExpenseSubmit} className="p-6 space-y-4">
                  <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1">
                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Amount (Rs.)</label>
@@ -294,7 +411,9 @@ export const ProjectList: React.FC = () => {
                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Description</label>
                     <textarea rows={2} required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold" value={expenseFormData.notes} onChange={e => setExpenseFormData(p => ({ ...p, notes: e.target.value }))} placeholder="e.g. Labor payment for week 4..."></textarea>
                  </div>
-                 <button type="submit" className="w-full bg-red-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-red-100 transition-all active:scale-95">Record Site Cost</button>
+                 <button type="submit" className="w-full bg-red-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-red-100 transition-all active:scale-95">
+                    {editingExpense ? 'Save Changes' : 'Record Site Cost'}
+                 </button>
               </form>
            </div>
         </div>
@@ -304,10 +423,10 @@ export const ProjectList: React.FC = () => {
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
            <div className="bg-white rounded-[2rem] w-full max-w-lg shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
               <div className="p-6 border-b border-slate-100 bg-emerald-50/30 flex justify-between items-center">
-                 <h2 className="text-xl font-bold text-slate-900">Record Milestone Income</h2>
-                 <button onClick={() => setShowQuickIncome(false)}><X size={24} className="text-slate-400" /></button>
+                 <h2 className="text-xl font-bold text-slate-900">{editingIncome ? 'Modify Milestone' : 'Record Milestone Income'}</h2>
+                 <button onClick={() => { setShowQuickIncome(false); setEditingIncome(null); }}><X size={24} className="text-slate-400" /></button>
               </div>
-              <form onSubmit={handleQuickIncome} className="p-6 space-y-4">
+              <form onSubmit={handleQuickIncomeSubmit} className="p-6 space-y-4">
                  <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1">
                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Amount (Rs.)</label>
@@ -322,9 +441,64 @@ export const ProjectList: React.FC = () => {
                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Milestone Description</label>
                     <textarea rows={2} required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold" value={incomeFormData.description} onChange={e => setIncomeFormData(p => ({ ...p, description: e.target.value }))} placeholder="e.g. 2nd Floor Slab Casting Payment..."></textarea>
                  </div>
-                 <button type="submit" className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-emerald-100 transition-all active:scale-95">Record Payment</button>
+                 <button type="submit" className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-emerald-100 transition-all active:scale-95">
+                    {editingIncome ? 'Save Changes' : 'Record Payment'}
+                 </button>
               </form>
            </div>
+        </div>
+      )}
+
+      {/* Project Add/Edit Modal */}
+      {showModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-[2rem] w-full max-w-xl shadow-2xl overflow-hidden flex flex-col h-fit max-h-[92vh] animate-in zoom-in-95 duration-200">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+              <h2 className="text-xl font-bold text-slate-900">{editingProject ? 'Edit Site Profile' : 'New Project'}</h2>
+              <button onClick={() => setShowModal(false)} className="p-2 text-slate-400 hover:text-slate-600"><X size={24} /></button>
+            </div>
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              const projectData: Project = {
+                id: editingProject ? editingProject.id : 'p' + Date.now(),
+                name: formData.name,
+                client: formData.client,
+                location: formData.location,
+                budget: parseFloat(formData.budget) || 0,
+                startDate: formData.startDate,
+                endDate: formData.endDate || formData.startDate,
+                status: editingProject ? editingProject.status : 'Active',
+                description: formData.description
+              };
+              if (editingProject) updateProject(projectData); else addProject(projectData);
+              setShowModal(false);
+              setEditingProject(null);
+              setFormData({ name: '', client: '', location: '', budget: '', startDate: new Date().toISOString().split('T')[0], endDate: '', description: '' });
+            }} className="p-6 space-y-4 overflow-y-auto">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Project Name</label>
+                <input type="text" placeholder="e.g. Skyline Towers" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:ring-2 focus:ring-blue-500" value={formData.name} onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))} required />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <input type="text" placeholder="Client" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none" value={formData.client} onChange={(e) => setFormData(prev => ({ ...prev, client: e.target.value }))} required />
+                <input type="text" placeholder="Location" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none" value={formData.location} onChange={(e) => setFormData(prev => ({ ...prev, location: e.target.value }))} required />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Total Budget (Rs.)</label>
+                <input type="number" placeholder="0.00" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold" value={formData.budget} onChange={(e) => setFormData(prev => ({ ...prev, budget: e.target.value }))} required />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <input type="date" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold" value={formData.startDate} onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))} required />
+                <input type="date" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold" value={formData.endDate} onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))} />
+              </div>
+              <div className="flex gap-4 pt-4">
+                <button type="button" onClick={() => setShowModal(false)} className="flex-1 bg-slate-100 py-4 rounded-2xl font-bold text-sm">Cancel</button>
+                <button type="submit" className="flex-1 bg-blue-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-blue-100 transition-all active:scale-95 text-sm">
+                   {editingProject ? 'Save Changes' : 'Launch Site'}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>

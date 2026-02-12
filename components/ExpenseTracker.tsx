@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Plus, Receipt, CreditCard, Calendar, X, Briefcase, Users, DollarSign, Tag, ChevronDown, Pencil, Trash2
 } from 'lucide-react';
@@ -17,6 +17,17 @@ export const ExpenseTracker: React.FC = () => {
   const [formData, setFormData] = useState({
     projectId: projects[0]?.id || '', vendorId: '', date: new Date().toISOString().split('T')[0], amount: '', notes: '', category: 'Overhead' as Expense['category'], paymentMethod: 'Bank' as PaymentMethod
   });
+
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowModal(false);
+        setEditingExpense(null);
+      }
+    };
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, []);
 
   const handleCreateOrUpdateExpense = (e: React.FormEvent) => {
     e.preventDefault();
