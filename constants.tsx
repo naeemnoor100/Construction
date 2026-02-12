@@ -11,6 +11,7 @@ export const MOCK_USER: User = {
 
 export const INITIAL_STATE: AppState = {
   currentUser: MOCK_USER,
+  theme: 'light',
   projects: [
     {
       id: 'p1',

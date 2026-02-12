@@ -14,10 +14,13 @@ import {
   Pencil,
   AlertCircle,
   Save,
-  Plus
+  Plus,
+  Receipt,
+  // Added CheckCircle2 to fix the reference error on line 584
+  CheckCircle2
 } from 'lucide-react';
 import { useApp } from '../AppContext';
-import { Material, MaterialUnit, StockHistoryEntry } from '../types';
+import { Material, MaterialUnit, StockHistoryEntry, Expense } from '../types';
 
 const formatCurrency = (val: number) => `Rs. ${val.toLocaleString('en-IN')}`;
 
@@ -118,6 +121,7 @@ export const Inventory: React.FC = () => {
       }
     }
 
+    // Procurement triggers an expense against the project that funded the purchase
     addExpense({
       id: 'e' + Date.now(),
       date: procureData.date,
@@ -126,7 +130,7 @@ export const Inventory: React.FC = () => {
       amount: cost,
       paymentMethod: 'Bank',
       category: 'Material',
-      notes: `Purchase of ${qty} ${procureData.unit} material`
+      notes: `Purchase: ${qty} ${procureData.unit} of ${procureData.materialId === 'new' ? procureData.newName : materials.find(m => m.id === procureData.materialId)?.name}`
     });
 
     setShowProcureModal(false);
@@ -138,6 +142,7 @@ export const Inventory: React.FC = () => {
     const target = materials.find(m => m.id === usageData.materialId);
 
     if (target && (target.totalPurchased - target.totalUsed >= qty)) {
+      // 1. Update Inventory State
       updateMaterial({
         ...target,
         totalUsed: target.totalUsed + qty,
@@ -150,7 +155,26 @@ export const Inventory: React.FC = () => {
           note: usageData.notes || 'Site Consumption'
         }]
       });
+
+      // 2. Automatically Trigger Project Expense
+      // Calculate the value of the consumed material based on its unit cost
+      const consumptionValue = qty * target.costPerUnit;
+      
+      addExpense({
+        id: 'e-usage-' + Date.now(),
+        date: usageData.date,
+        projectId: usageData.projectId,
+        amount: consumptionValue,
+        paymentMethod: 'Bank', // Internal consumption defaults to Bank/Standard for accounting
+        category: 'Material',
+        materialId: target.id,
+        notes: `Stock Usage: ${qty} ${target.unit} of ${target.name}. ${usageData.notes ? `Note: ${usageData.notes}` : ''}`
+      });
+
       setShowUsageModal(false);
+      setUsageData({
+        materialId: '', projectId: projects[0]?.id || '', quantity: '', date: new Date().toISOString().split('T')[0], notes: ''
+      });
     } else {
       alert("Error: Insufficient stock available for this consumption amount.");
     }
@@ -490,7 +514,10 @@ export const Inventory: React.FC = () => {
                   <input type="number" placeholder="Qty" className="px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold" value={procureData.quantity} onChange={e => setProcureData(p => ({ ...p, quantity: e.target.value }))} required />
                   <input type="number" placeholder="Cost/Unit" className="px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold" value={procureData.costPerUnit} onChange={e => setProcureData(p => ({ ...p, costPerUnit: e.target.value }))} required />
                </div>
-               <button type="submit" className="w-full bg-slate-900 text-white py-4 rounded-2xl font-bold shadow-lg shadow-slate-200 transition-all active:scale-95 mt-4">Confirm Procurement</button>
+               <button type="submit" className="w-full bg-slate-900 text-white py-4 rounded-2xl font-bold shadow-lg shadow-slate-200 transition-all active:scale-95 mt-4 text-sm flex items-center justify-center gap-2">
+                 <ShoppingCart size={18} />
+                 Confirm Procurement
+               </button>
             </form>
           </div>
         </div>
@@ -501,34 +528,64 @@ export const Inventory: React.FC = () => {
         <div className="fixed inset-0 z-[140] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
           <div className="bg-white rounded-[2rem] w-full max-w-lg shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
              <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-blue-50/30">
-                <h2 className="text-xl font-bold text-slate-900">Record Site Consumption</h2>
-                <button onClick={() => setShowUsageModal(false)}><X size={24} className="text-slate-400" /></button>
+                <div className="flex gap-4 items-center">
+                  <div className="p-3 bg-blue-600 text-white rounded-2xl shadow-lg shadow-blue-100">
+                    <TrendingDown size={24} />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-slate-900">Project Consumption</h2>
+                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-tight">Triggers site-specific material expense</p>
+                  </div>
+                </div>
+                <button onClick={() => setShowUsageModal(false)}><X size={24} className="text-slate-400 hover:text-slate-900" /></button>
              </div>
              <form onSubmit={handleRecordUsage} className="p-6 space-y-4">
                 <div className="space-y-1.5">
                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Material to Deduct</label>
-                   <select className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold" value={usageData.materialId} onChange={e => setUsageData(p => ({ ...p, materialId: e.target.value }))} required>
-                     <option value="">Select Category</option>
-                     {materials.map(m => <option key={m.id} value={m.id}>{m.name} ({m.totalPurchased - m.totalUsed} in stock)</option>)}
-                   </select>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                   <div className="space-y-1.5">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Quantity Used</label>
-                      <input type="number" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold" value={usageData.quantity} onChange={e => setUsageData(p => ({ ...p, quantity: e.target.value }))} />
-                   </div>
-                   <div className="space-y-1.5">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Destination Site</label>
-                      <select className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold" value={usageData.projectId} onChange={e => setUsageData(p => ({ ...p, projectId: e.target.value }))} required>
-                         {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                   <div className="relative">
+                      <Package className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                      <select 
+                        className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-xl font-bold appearance-none outline-none focus:ring-2 focus:ring-blue-500 transition-all" 
+                        value={usageData.materialId} 
+                        onChange={e => setUsageData(p => ({ ...p, materialId: e.target.value }))} 
+                        required
+                      >
+                        <option value="">Select Asset...</option>
+                        {materials.map(m => <option key={m.id} value={m.id}>{m.name} ({m.totalPurchased - m.totalUsed} {m.unit} in stock)</option>)}
                       </select>
                    </div>
                 </div>
-                <div className="space-y-1.5">
-                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Audit Log Note</label>
-                   <input type="text" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold" placeholder="e.g. 2nd floor column casting" value={usageData.notes} onChange={e => setUsageData(p => ({ ...p, notes: e.target.value }))} />
+                <div className="grid grid-cols-2 gap-4">
+                   <div className="space-y-1.5">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Consumption Qty</label>
+                      <input type="number" required step="0.01" className="w-full px-4 py-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:ring-2 focus:ring-blue-500" value={usageData.quantity} onChange={e => setUsageData(p => ({ ...p, quantity: e.target.value }))} />
+                   </div>
+                   <div className="space-y-1.5">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Destination Site</label>
+                      <div className="relative">
+                        <Briefcase className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                        <select className="w-full pl-10 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-xl font-bold appearance-none" value={usageData.projectId} onChange={e => setUsageData(p => ({ ...p, projectId: e.target.value }))} required>
+                           {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                        </select>
+                      </div>
+                   </div>
                 </div>
-                <button type="submit" className="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-blue-100 transition-all active:scale-95 mt-4">Confirm Usage</button>
+                <div className="space-y-1.5">
+                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Site Notes (Internal Audit)</label>
+                   <textarea rows={2} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none" placeholder="e.g. 2nd floor column casting" value={usageData.notes} onChange={e => setUsageData(p => ({ ...p, notes: e.target.value }))}></textarea>
+                </div>
+
+                <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100 flex items-start gap-3 mt-2">
+                   <Receipt size={16} className="text-blue-600 mt-0.5" />
+                   <p className="text-[10px] font-medium text-blue-700 leading-tight">
+                     Recording this usage will automatically create a matching <strong>Material Expense</strong> for the target project based on the asset's unit cost.
+                   </p>
+                </div>
+
+                <button type="submit" className="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-blue-100 transition-all active:scale-95 flex items-center justify-center gap-2 text-sm">
+                  <CheckCircle2 size={18} />
+                  Authorize Consumption
+                </button>
              </form>
           </div>
         </div>

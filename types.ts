@@ -99,6 +99,7 @@ export interface AppState {
   payments: Payment[];
   incomes: Income[];
   currentUser: User;
+  theme: 'light' | 'dark';
   syncId?: string;
   lastUpdated?: number;
 }
