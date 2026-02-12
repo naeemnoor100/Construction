@@ -39,8 +39,10 @@ export type MaterialUnit = 'Bag' | 'Ton' | 'KG' | 'Piece' | 'Cubic Meter';
 export interface StockHistoryEntry {
   id: string;
   date: string;
-  type: 'Purchase' | 'Usage';
+  type: 'Purchase' | 'Usage' | 'Transfer';
   quantity: number;
+  projectId?: string;
+  vendorId?: string;
   note?: string;
 }
 
@@ -73,10 +75,19 @@ export interface Payment {
   id: string;
   date: string;
   vendorId: string;
-  projectId: string;
+  projectId: string; // Mandatory link to a project
   amount: number;
   method: PaymentMethod;
   reference?: string;
+}
+
+export interface Income {
+  id: string;
+  projectId: string;
+  date: string;
+  amount: number;
+  description: string;
+  method: PaymentMethod;
 }
 
 export interface AppState {
@@ -85,5 +96,8 @@ export interface AppState {
   materials: Material[];
   expenses: Expense[];
   payments: Payment[];
+  incomes: Income[];
   currentUser: User;
+  syncId?: string;
+  lastUpdated?: number;
 }

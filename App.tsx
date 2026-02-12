@@ -9,6 +9,7 @@ import { Inventory } from './components/Inventory';
 import { ExpenseTracker } from './components/ExpenseTracker';
 import { AIAssistant } from './components/AIAssistant';
 import { Reports } from './components/Reports';
+import { ProjectIncome } from './components/ProjectIncome';
 
 const MainApp: React.FC = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -19,6 +20,8 @@ const MainApp: React.FC = () => {
         return <Dashboard />;
       case 'projects':
         return <ProjectList />;
+      case 'income':
+        return <ProjectIncome />;
       case 'vendors':
         return <VendorList />;
       case 'materials':
