@@ -46,6 +46,7 @@ export interface StockHistoryEntry {
   projectId?: string;
   vendorId?: string;
   note?: string;
+  unitPrice?: number;
 }
 
 export interface Material {

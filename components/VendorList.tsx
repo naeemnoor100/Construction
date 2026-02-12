@@ -23,7 +23,8 @@ import {
   Landmark,
   MoreVertical,
   Phone,
-  MapPin
+  MapPin,
+  Lock
 } from 'lucide-react';
 import { useApp } from '../AppContext';
 import { Vendor, VendorCategory, Payment, PaymentMethod, Project } from '../types';
@@ -31,7 +32,7 @@ import { Vendor, VendorCategory, Payment, PaymentMethod, Project } from '../type
 const formatCurrency = (val: number) => `Rs. ${val.toLocaleString('en-IN')}`;
 
 export const VendorList: React.FC = () => {
-  const { vendors, payments, projects, materials, tradeCategories, addVendor, updateVendor, deleteVendor, addPayment, updatePayment, deletePayment } = useApp();
+  const { vendors, payments, expenses, projects, materials, tradeCategories, addVendor, updateVendor, deleteVendor, addPayment, updatePayment, deletePayment } = useApp();
   const [searchTerm, setSearchTerm] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editingVendor, setEditingVendor] = useState<Vendor | null>(null);
@@ -43,6 +44,7 @@ export const VendorList: React.FC = () => {
   
   const [activeDetailTab, setActiveDetailTab] = useState<'payments' | 'supplies'>('payments');
   const [selectedVendorForPayment, setSelectedVendorForPayment] = useState<Vendor | null>(null);
+  const [editingPaymentRecord, setEditingPaymentRecord] = useState<Payment | null>(null);
   
   const [formData, setFormData] = useState({
     name: '', phone: '', category: tradeCategories[0] || 'Material', address: '', balance: ''
@@ -62,6 +64,7 @@ export const VendorList: React.FC = () => {
         setShowModal(false);
         setShowPaymentModal(false);
         setViewingVendorId(null);
+        setEditingPaymentRecord(null);
       }
     };
     window.addEventListener('keydown', handleEsc);
@@ -77,12 +80,29 @@ export const VendorList: React.FC = () => {
 
   const handleOpenPaymentModal = (vendor: Vendor, prefillProjectId?: string, prefillAmount?: number) => {
     setSelectedVendorForPayment(vendor);
+    setEditingPaymentRecord(null);
     setPaymentFormData({
       projectId: prefillProjectId || projects[0]?.id || '',
       amount: prefillAmount ? Math.min(prefillAmount, vendor.balance).toString() : '',
       method: 'Bank',
       date: new Date().toISOString().split('T')[0],
       reference: ''
+    });
+    setShowPaymentModal(true);
+  };
+
+  const handleOpenEditPaymentModal = (pay: Payment) => {
+    const vendor = vendors.find(v => v.id === pay.vendorId);
+    if (!vendor) return;
+    
+    setSelectedVendorForPayment(vendor);
+    setEditingPaymentRecord(pay);
+    setPaymentFormData({
+      projectId: pay.projectId,
+      amount: pay.amount.toString(),
+      method: pay.method,
+      date: pay.date,
+      reference: pay.reference || ''
     });
     setShowPaymentModal(true);
   };
@@ -98,8 +118,14 @@ export const VendorList: React.FC = () => {
       return;
     }
 
-    if (amountNum > selectedVendorForPayment.balance) {
-      alert(`Invalid Amount: You cannot settle more than the outstanding balance of ${formatCurrency(selectedVendorForPayment.balance)}.`);
+    // Validation logic for editing vs new
+    // If editing, the allowed maximum is (current balance + old payment amount)
+    const allowedLimit = editingPaymentRecord 
+      ? selectedVendorForPayment.balance + editingPaymentRecord.amount 
+      : selectedVendorForPayment.balance;
+
+    if (amountNum > allowedLimit) {
+      alert(`Invalid Amount: You cannot settle more than the outstanding balance of ${formatCurrency(allowedLimit)}.`);
       return;
     }
 
@@ -109,7 +135,7 @@ export const VendorList: React.FC = () => {
     }
     
     const paymentData: Payment = {
-      id: 'pay' + Date.now(),
+      id: editingPaymentRecord ? editingPaymentRecord.id : 'pay' + Date.now(),
       date: paymentFormData.date,
       vendorId: selectedVendorForPayment.id,
       projectId: paymentFormData.projectId,
@@ -118,9 +144,15 @@ export const VendorList: React.FC = () => {
       reference: paymentFormData.reference
     };
 
-    addPayment(paymentData);
+    if (editingPaymentRecord) {
+      updatePayment(paymentData);
+    } else {
+      addPayment(paymentData);
+    }
+    
     setShowPaymentModal(false);
     setSelectedVendorForPayment(null);
+    setEditingPaymentRecord(null);
   };
 
   const handleDeleteVendor = (id: string, name: string) => {
@@ -146,7 +178,8 @@ export const VendorList: React.FC = () => {
               ...h, 
               materialName: mat.name, 
               unit: mat.unit,
-              estimatedValue: h.quantity * mat.costPerUnit 
+              unitPrice: h.unitPrice || mat.costPerUnit,
+              estimatedValue: h.quantity * (h.unitPrice || mat.costPerUnit)
             });
           }
         });
@@ -154,6 +187,14 @@ export const VendorList: React.FC = () => {
     });
     return supplyList.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [activeVendor, materials]);
+
+  // Check if the vendor being edited has any history
+  const hasVendorHistory = useMemo(() => {
+    if (!editingVendor) return false;
+    const hasPayments = payments.some(p => p.vendorId === editingVendor.id);
+    const hasExpenses = expenses.some(e => e.vendorId === editingVendor.id);
+    return hasPayments || hasExpenses;
+  }, [editingVendor, payments, expenses]);
 
   return (
     <div className="space-y-6">
@@ -268,7 +309,7 @@ export const VendorList: React.FC = () => {
 
       {/* Modern Payment Modal as Mobile Sheet */}
       {showPaymentModal && selectedVendorForPayment && (
-        <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
           <div className="bg-white dark:bg-slate-800 rounded-[3rem] w-full max-w-lg shadow-2xl overflow-hidden mobile-sheet animate-in slide-in-from-bottom-8 duration-300">
             <div className="p-8 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-emerald-50/20 dark:bg-emerald-900/10">
                <div className="flex gap-4 items-center">
@@ -276,24 +317,28 @@ export const VendorList: React.FC = () => {
                     <DollarSign size={28} />
                  </div>
                  <div>
-                    <h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">New Settlement</h2>
+                    <h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">{editingPaymentRecord ? 'Modify Settlement' : 'New Settlement'}</h2>
                     <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase">Vendor: {selectedVendorForPayment.name}</p>
                  </div>
                </div>
-               <button onClick={() => { setShowPaymentModal(false); setSelectedVendorForPayment(null); }} className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white"><X size={32} /></button>
+               <button onClick={() => { setShowPaymentModal(false); setSelectedVendorForPayment(null); setEditingPaymentRecord(null); }} className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white"><X size={32} /></button>
             </div>
             
             <form onSubmit={handleRecordPayment} className="p-8 space-y-6 pb-safe overflow-y-auto no-scrollbar max-h-[80vh]">
                <div className="bg-slate-900 dark:bg-slate-950 p-6 rounded-[2rem] text-white flex justify-between items-center shadow-2xl">
                   <div>
-                    <p className="text-[10px] font-black text-white/50 uppercase tracking-widest mb-1">Due Amount</p>
-                    <p className="text-xl font-black">{formatCurrency(selectedVendorForPayment.balance)}</p>
+                    <p className="text-[10px] font-black text-white/50 uppercase tracking-widest mb-1">
+                      {editingPaymentRecord ? 'Base Balance Before This' : 'Due Amount'}
+                    </p>
+                    <p className="text-xl font-black">
+                      {formatCurrency(editingPaymentRecord ? selectedVendorForPayment.balance + editingPaymentRecord.amount : selectedVendorForPayment.balance)}
+                    </p>
                   </div>
                   <ArrowRight className="text-white/20" size={24} />
                   <div className="text-right">
                     <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest mb-1">Projected Balance</p>
                     <p className="text-xl font-black text-emerald-500">
-                      {formatCurrency(Math.max(0, selectedVendorForPayment.balance - (parseFloat(paymentFormData.amount) || 0)))}
+                      {formatCurrency(Math.max(0, (editingPaymentRecord ? selectedVendorForPayment.balance + editingPaymentRecord.amount : selectedVendorForPayment.balance) - (parseFloat(paymentFormData.amount) || 0)))}
                     </p>
                   </div>
                </div>
@@ -317,7 +362,7 @@ export const VendorList: React.FC = () => {
                   <div className="space-y-2">
                     <div className="flex justify-between items-center px-1">
                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Payment Amount (Rs.)</label>
-                      {parseFloat(paymentFormData.amount) > selectedVendorForPayment.balance && (
+                      {parseFloat(paymentFormData.amount) > (editingPaymentRecord ? selectedVendorForPayment.balance + editingPaymentRecord.amount : selectedVendorForPayment.balance) && (
                         <span className="text-[9px] font-black text-red-500 uppercase animate-pulse flex items-center gap-1">
                           <AlertCircle size={10} /> Limit Exceeded
                         </span>
@@ -328,7 +373,7 @@ export const VendorList: React.FC = () => {
                       step="0.01" 
                       required 
                       placeholder="0.00" 
-                      className={`w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border rounded-2xl font-black text-lg dark:text-white outline-none focus:ring-4 transition-all ${parseFloat(paymentFormData.amount) > selectedVendorForPayment.balance ? 'border-red-500 focus:ring-red-500/10' : 'border-slate-200 dark:border-slate-700 focus:ring-emerald-500/10'}`} 
+                      className={`w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border rounded-2xl font-black text-lg dark:text-white outline-none focus:ring-4 transition-all ${parseFloat(paymentFormData.amount) > (editingPaymentRecord ? selectedVendorForPayment.balance + editingPaymentRecord.amount : selectedVendorForPayment.balance) ? 'border-red-500 focus:ring-red-500/10' : 'border-slate-200 dark:border-slate-700 focus:ring-emerald-500/10'}`} 
                       value={paymentFormData.amount} 
                       onChange={(e) => setPaymentFormData(p => ({ ...p, amount: e.target.value }))} 
                     />
@@ -364,11 +409,11 @@ export const VendorList: React.FC = () => {
 
                <button 
                 type="submit" 
-                disabled={parseFloat(paymentFormData.amount) > selectedVendorForPayment.balance}
-                className={`w-full py-5 rounded-[2rem] font-black shadow-2xl transition-all text-sm uppercase tracking-widest flex items-center justify-center gap-3 ${parseFloat(paymentFormData.amount) > selectedVendorForPayment.balance ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none' : 'bg-emerald-600 text-white shadow-emerald-200 dark:shadow-none active:scale-95'}`}
+                disabled={parseFloat(paymentFormData.amount) > (editingPaymentRecord ? selectedVendorForPayment.balance + editingPaymentRecord.amount : selectedVendorForPayment.balance)}
+                className={`w-full py-5 rounded-[2rem] font-black shadow-2xl transition-all text-sm uppercase tracking-widest flex items-center justify-center gap-3 ${parseFloat(paymentFormData.amount) > (editingPaymentRecord ? selectedVendorForPayment.balance + editingPaymentRecord.amount : selectedVendorForPayment.balance) ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none' : 'bg-emerald-600 text-white shadow-emerald-200 dark:shadow-none active:scale-95'}`}
                >
                  <CheckCircle2 size={24} />
-                 Authorize Payment
+                 {editingPaymentRecord ? 'Update Settlement' : 'Authorize Payment'}
                </button>
             </form>
           </div>
@@ -433,24 +478,33 @@ export const VendorList: React.FC = () => {
                               </td>
                               <td className="px-8 py-5 text-sm font-black text-emerald-600 text-right">{formatCurrency(pay.amount)}</td>
                               <td className="px-8 py-5 text-right">
-                                <button 
-                                  onClick={() => handleDeletePaymentRecord(pay.id)} 
-                                  className="p-2 text-slate-400 hover:text-red-500 transition-colors"
-                                >
-                                  <Trash2 size={16} />
-                                </button>
+                                <div className="flex justify-end gap-2">
+                                  <button 
+                                    onClick={() => handleOpenEditPaymentModal(pay)} 
+                                    className="p-2 text-slate-400 hover:text-blue-600 transition-colors"
+                                  >
+                                    <Pencil size={16} />
+                                  </button>
+                                  <button 
+                                    onClick={() => handleDeletePaymentRecord(pay.id)} 
+                                    className="p-2 text-slate-400 hover:text-red-500 transition-colors"
+                                  >
+                                    <Trash2 size={16} />
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
                    ) : (
-                      <table className="w-full text-left min-w-[600px]">
+                      <table className="w-full text-left min-w-[700px]">
                         <thead className="bg-slate-50 dark:bg-slate-900 text-[10px] font-black text-slate-400 uppercase border-b border-slate-100 dark:border-slate-700">
                           <tr>
                             <th className="px-8 py-5">Arrival Date</th>
                             <th className="px-8 py-5">Material Asset</th>
                             <th className="px-8 py-5 text-right">Qty Received</th>
+                            <th className="px-8 py-5 text-right">Unit Price</th>
                             <th className="px-8 py-5">Site Allocation</th>
                             <th className="px-8 py-5 text-right">Quick Settlement</th>
                           </tr>
@@ -469,6 +523,7 @@ export const VendorList: React.FC = () => {
                                 </div>
                               </td>
                               <td className="px-8 py-5 text-[11px] font-black text-slate-700 dark:text-slate-300 text-right">{supply.quantity.toLocaleString()} {supply.unit}</td>
+                              <td className="px-8 py-5 text-[11px] font-black text-slate-600 dark:text-slate-400 text-right">{formatCurrency(supply.unitPrice)}</td>
                               <td className="px-8 py-5 text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-tighter">{projects.find(p => p.id === supply.projectId)?.name || 'Direct Allocation'}</td>
                               <td className="px-8 py-5 text-right">
                                 <button 
@@ -481,7 +536,7 @@ export const VendorList: React.FC = () => {
                             </tr>
                           )) : (
                             <tr>
-                              <td colSpan={5} className="px-8 py-20 text-center">
+                              <td colSpan={6} className="px-8 py-20 text-center">
                                 <AlertCircle size={32} className="mx-auto text-slate-300 mb-4 opacity-50" />
                                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">No procurement history recorded for this supplier</p>
                               </td>
@@ -533,8 +588,23 @@ export const VendorList: React.FC = () => {
                    </select>
                 </div>
                 <div className="space-y-2">
-                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Opening Balance (Rs.)</label>
-                   <input type="number" placeholder="0.00" className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={formData.balance} onChange={(e) => setFormData(p => ({ ...p, balance: e.target.value }))} />
+                   <div className="flex justify-between items-center px-1">
+                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Opening Balance (Rs.)</label>
+                     {hasVendorHistory && (
+                        <div className="flex items-center gap-1 bg-amber-50 dark:bg-amber-900/30 px-2 py-0.5 rounded-full border border-amber-200 dark:border-amber-800">
+                           <Lock size={10} className="text-amber-600" />
+                           <span className="text-[8px] font-black uppercase text-amber-600">Locked: Has History</span>
+                        </div>
+                     )}
+                   </div>
+                   <input 
+                    type="number" 
+                    placeholder="0.00" 
+                    disabled={hasVendorHistory}
+                    className={`w-full px-5 py-4 border rounded-2xl font-bold dark:text-white outline-none transition-all ${hasVendorHistory ? 'bg-slate-100 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-400 cursor-not-allowed opacity-70 shadow-inner' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 focus:ring-4 focus:ring-blue-500/10'}`} 
+                    value={formData.balance} 
+                    onChange={(e) => setFormData(p => ({ ...p, balance: e.target.value }))} 
+                  />
                 </div>
               </div>
               <div className="space-y-2">

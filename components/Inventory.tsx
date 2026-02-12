@@ -20,19 +20,32 @@ import {
   ArrowRight,
   TrendingUp,
   Landmark,
-  Calendar
+  Calendar,
+  SortAsc,
+  SortDesc,
+  ArrowUpDown,
+  ArrowUpNarrowWide,
+  DollarSign
 } from 'lucide-react';
 import { useApp } from '../AppContext';
 import { Material, MaterialUnit, StockHistoryEntry, Expense, Project, Vendor } from '../types';
 
 const formatCurrency = (val: number) => `Rs. ${val.toLocaleString('en-IN')}`;
 
+type InventorySortOption = 'name' | 'stock-low' | 'stock-high' | 'cost';
+type HistorySortOption = 'date-desc' | 'date-asc' | 'qty-high' | 'qty-low';
+
 export const Inventory: React.FC = () => {
-  const { materials, projects, vendors, stockingUnits, updateMaterial, addMaterial, deleteMaterial, addExpense, deleteExpense } = useApp();
+  const { materials, projects, vendors, stockingUnits, updateMaterial, addMaterial, deleteMaterial, addExpense, deleteExpense, updateVendor } = useApp();
   const [searchTerm, setSearchTerm] = useState('');
   const [projectFilter, setProjectFilter] = useState('All');
   const [vendorFilter, setVendorFilter] = useState('All');
+  const [inventorySort, setInventorySort] = useState<InventorySortOption>('name');
+  
   const [historyMaterial, setHistoryMaterial] = useState<Material | null>(null);
+  const [historySearch, setHistorySearch] = useState('');
+  const [historySort, setHistorySort] = useState<HistorySortOption>('date-desc');
+  
   const [showProcureModal, setShowProcureModal] = useState(false);
   const [showUsageModal, setShowUsageModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -68,13 +81,58 @@ export const Inventory: React.FC = () => {
   });
 
   const filteredMaterials = useMemo(() => {
-    return materials.filter(mat => {
+    let result = materials.filter(mat => {
       const matchesSearch = mat.name.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesProject = projectFilter === 'All' || mat.history?.some(h => h.projectId === projectFilter);
       const matchesVendor = vendorFilter === 'All' || mat.history?.some(h => h.vendorId === vendorFilter);
       return matchesSearch && matchesProject && matchesVendor;
     });
-  }, [materials, searchTerm, projectFilter, vendorFilter]);
+
+    return result.sort((a, b) => {
+      const stockA = a.totalPurchased - a.totalUsed;
+      const stockB = b.totalPurchased - b.totalUsed;
+      if (inventorySort === 'name') return a.name.localeCompare(b.name);
+      if (inventorySort === 'stock-low') return stockA - stockB;
+      if (inventorySort === 'stock-high') return stockB - stockA;
+      if (inventorySort === 'cost') return b.costPerUnit - a.costPerUnit;
+      return 0;
+    });
+  }, [materials, searchTerm, projectFilter, vendorFilter, inventorySort]);
+
+  const filteredHistory = useMemo(() => {
+    if (!historyMaterial || !historyMaterial.history) return [];
+    
+    let result = historyMaterial.history.filter(entry => {
+      const projectName = projects.find(p => p.id === entry.projectId)?.name || '';
+      const vendorName = vendors.find(v => v.id === entry.vendorId)?.name || '';
+      const search = historySearch.toLowerCase();
+      
+      return (
+        entry.note?.toLowerCase().includes(search) ||
+        entry.type.toLowerCase().includes(search) ||
+        projectName.toLowerCase().includes(search) ||
+        vendorName.toLowerCase().includes(search)
+      );
+    });
+
+    return result.sort((a, b) => {
+      if (historySort === 'date-desc') {
+        const timeB = new Date(b.date).getTime();
+        const timeA = new Date(a.date).getTime();
+        if (timeB !== timeA) return timeB - timeA;
+        return b.id.localeCompare(a.id);
+      }
+      if (historySort === 'date-asc') {
+        const timeA = new Date(a.date).getTime();
+        const timeB = new Date(b.date).getTime();
+        if (timeA !== timeB) return timeA - timeB;
+        return a.id.localeCompare(b.id);
+      }
+      if (historySort === 'qty-high') return b.quantity - a.quantity;
+      if (historySort === 'qty-low') return a.quantity - b.quantity;
+      return 0;
+    });
+  }, [historyMaterial, historySearch, historySort, projects, vendors]);
 
   const handleOpenUsageModal = (matId?: string) => {
     setUsageData({
@@ -100,7 +158,8 @@ export const Inventory: React.FC = () => {
   const handleProcureStock = (e: React.FormEvent) => {
     e.preventDefault();
     const qty = parseFloat(procureData.quantity) || 0;
-    const cost = (parseFloat(procureData.costPerUnit) || 0) * qty;
+    const unitPrice = parseFloat(procureData.costPerUnit) || 0;
+    const cost = unitPrice * qty;
 
     if (procureData.materialId === 'new') {
       const newId = 'm' + Date.now();
@@ -108,7 +167,7 @@ export const Inventory: React.FC = () => {
         id: newId,
         name: procureData.newName,
         unit: procureData.unit,
-        costPerUnit: parseFloat(procureData.costPerUnit) || 0,
+        costPerUnit: unitPrice,
         totalPurchased: qty,
         totalUsed: 0,
         history: [{
@@ -118,7 +177,8 @@ export const Inventory: React.FC = () => {
           quantity: qty,
           vendorId: procureData.vendorId,
           projectId: procureData.projectId,
-          note: `Initial Procurement`
+          note: `Initial Procurement`,
+          unitPrice: unitPrice
         }]
       });
     } else {
@@ -134,24 +194,27 @@ export const Inventory: React.FC = () => {
             quantity: qty,
             vendorId: procureData.vendorId,
             projectId: procureData.projectId,
-            note: `Restock Procurement`
+            note: `Restock Procurement`,
+            unitPrice: unitPrice
           }]
         });
       }
     }
 
-    addExpense({
-      id: 'e' + Date.now(),
-      date: procureData.date,
-      projectId: procureData.projectId,
-      vendorId: procureData.vendorId,
-      amount: cost,
-      paymentMethod: 'Bank',
-      category: 'Material',
-      notes: `Purchase: ${qty} ${procureData.unit} of ${procureData.materialId === 'new' ? procureData.newName : materials.find(m => m.id === procureData.materialId)?.name}`
-    });
+    if (procureData.vendorId) {
+      const vendor = vendors.find(v => v.id === procureData.vendorId);
+      if (vendor) {
+        updateVendor({
+          ...vendor,
+          balance: vendor.balance + cost
+        });
+      }
+    }
 
     setShowProcureModal(false);
+    setProcureData({
+      materialId: '', newName: '', vendorId: vendors[0]?.id || '', projectId: projects[0]?.id || '', quantity: '', unit: stockingUnits[0] || 'Bag', costPerUnit: '', date: new Date().toISOString().split('T')[0]
+    });
   };
 
   const handleRecordUsage = (e: React.FormEvent) => {
@@ -169,7 +232,8 @@ export const Inventory: React.FC = () => {
           type: 'Usage',
           quantity: qty,
           projectId: usageData.projectId,
-          note: usageData.notes || 'Site Consumption'
+          note: usageData.notes || 'Site Consumption',
+          unitPrice: target.costPerUnit
         }]
       });
 
@@ -200,9 +264,19 @@ export const Inventory: React.FC = () => {
 
   const handleDeleteHistoryEntry = (material: Material, entryId: string) => {
     if (!confirm("Recalculate Stock: Delete this log entry? Total inventory levels will be adjusted automatically.")) return;
+    const entry = material.history?.find(h => h.id === entryId);
     const newHistory = material.history?.filter(h => h.id !== entryId) || [];
     const totalPurchased = newHistory.filter(h => h.type === 'Purchase').reduce((sum, h) => sum + h.quantity, 0);
     const totalUsed = newHistory.filter(h => h.type === 'Usage').reduce((sum, h) => sum + h.quantity, 0);
+    
+    if (entry && entry.type === 'Purchase' && entry.vendorId) {
+      const vendor = vendors.find(v => v.id === entry.vendorId);
+      if (vendor) {
+        const cost = entry.quantity * (entry.unitPrice || material.costPerUnit);
+        updateVendor({ ...vendor, balance: Math.max(0, vendor.balance - cost) });
+      }
+    }
+
     const updatedMat = { ...material, totalPurchased, totalUsed, history: newHistory };
     updateMaterial(updatedMat);
     setHistoryMaterial(updatedMat);
@@ -224,7 +298,7 @@ export const Inventory: React.FC = () => {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight uppercase tracking-tighter">Inventory Ledger</h2>
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight uppercase">Inventory Ledger</h2>
           <p className="text-slate-500 dark:text-slate-400 text-sm font-medium">Manage master assets, monitor levels, and track site consumption.</p>
         </div>
         <div className="grid grid-cols-2 gap-3 w-full sm:w-auto">
@@ -238,6 +312,21 @@ export const Inventory: React.FC = () => {
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
           <input type="text" placeholder="Search by asset name..." className="w-full pl-12 pr-4 py-3.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white font-bold" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
         </div>
+        <div className="flex gap-2">
+          <div className="relative">
+             <Filter className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+             <select 
+               className="pl-10 pr-8 py-3.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl text-[10px] font-black uppercase tracking-widest outline-none appearance-none dark:text-white"
+               value={inventorySort}
+               onChange={(e) => setInventorySort(e.target.value as InventorySortOption)}
+             >
+                <option value="name">Sort: A-Z</option>
+                <option value="stock-low">Sort: Stock Low</option>
+                <option value="stock-high">Sort: Stock High</option>
+                <option value="cost">Sort: High Cost</option>
+             </select>
+          </div>
+        </div>
       </div>
 
       <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] border border-slate-200 dark:border-slate-700 overflow-hidden shadow-sm">
@@ -246,7 +335,7 @@ export const Inventory: React.FC = () => {
             <thead className="bg-slate-50 dark:bg-slate-900 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 dark:border-slate-700">
               <tr>
                 <th className="px-8 py-5">Material Asset</th>
-                <th className="px-8 py-5">Avg Cost</th>
+                <th className="px-8 py-5">Actual Cost</th>
                 <th className="px-8 py-5">Status / Level</th>
                 <th className="px-8 py-5 text-right">Control</th>
               </tr>
@@ -274,7 +363,7 @@ export const Inventory: React.FC = () => {
                     <td className="px-8 py-5 text-right">
                        <div className="flex justify-end gap-2 items-center">
                          <button onClick={() => handleOpenUsageModal(mat.id)} className="p-3 text-blue-600 bg-blue-50 dark:bg-blue-900/20 rounded-2xl hover:bg-blue-600 hover:text-white transition-all shadow-sm" title="Quick Usage"><TrendingDown size={18} /></button>
-                         <button onClick={() => setHistoryMaterial(mat)} className="p-3 text-slate-400 bg-slate-50 dark:bg-slate-700/50 rounded-2xl hover:text-slate-900 dark:hover:text-white transition-all shadow-sm" title="View Logs"><History size={18} /></button>
+                         <button onClick={() => { setHistoryMaterial(mat); setHistorySearch(''); setHistorySort('date-desc'); }} className="p-3 text-slate-400 bg-slate-50 dark:bg-slate-700/50 rounded-2xl hover:text-slate-900 dark:hover:text-white transition-all shadow-sm" title="View Logs"><History size={18} /></button>
                          <button onClick={() => handleOpenEditModal(mat)} className="p-3 text-slate-400 hover:text-blue-600 transition-colors"><Pencil size={18} /></button>
                          <button onClick={() => handleDeleteAsset(mat.id, mat.name)} className="p-3 text-slate-300 hover:text-red-600 transition-colors"><Trash2 size={18} /></button>
                        </div>
@@ -310,58 +399,96 @@ export const Inventory: React.FC = () => {
                <button onClick={() => setHistoryMaterial(null)} className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"><X size={36} /></button>
             </div>
 
+            <div className="px-8 py-4 bg-slate-50 dark:bg-slate-900/50 border-b border-slate-100 dark:border-slate-700 flex flex-col sm:flex-row gap-4 items-center shrink-0">
+               <div className="relative flex-1 w-full">
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                  <input 
+                    type="text" 
+                    placeholder="Filter logs by notes, site, or supplier..." 
+                    className="w-full pl-11 pr-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold dark:text-white outline-none focus:ring-2 focus:ring-blue-500 shadow-sm"
+                    value={historySearch}
+                    onChange={(e) => setHistorySearch(e.target.value)}
+                  />
+               </div>
+               <div className="flex gap-2 w-full sm:w-auto">
+                  <div className="relative flex-1 sm:flex-none">
+                     <ArrowUpNarrowWide className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                     <select 
+                       className="pl-9 pr-8 py-3 w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-[10px] font-black uppercase tracking-widest outline-none appearance-none dark:text-white shadow-sm"
+                       value={historySort}
+                       onChange={(e) => setHistorySort(e.target.value as HistorySortOption)}
+                     >
+                        <option value="date-desc">Newest Entry First</option>
+                        <option value="date-asc">Oldest First</option>
+                        <option value="qty-high">Quantity: High-Low</option>
+                        <option value="qty-low">Quantity: Low-High</option>
+                     </select>
+                  </div>
+               </div>
+            </div>
+
             <div className="flex-1 overflow-y-auto p-4 sm:p-8 bg-slate-50/20 dark:bg-slate-900/10 no-scrollbar">
                <div className="bg-white dark:bg-slate-800 rounded-[2rem] border border-slate-200 dark:border-slate-700 overflow-hidden shadow-sm">
                  <div className="overflow-x-auto no-scrollbar">
-                    <table className="w-full text-left min-w-[700px]">
+                    <table className="w-full text-left min-w-[850px]">
                       <thead className="bg-slate-50 dark:bg-slate-900 text-[10px] font-black text-slate-400 uppercase border-b border-slate-100 dark:border-slate-700">
                         <tr>
                           <th className="px-8 py-5">Date</th>
-                          <th className="px-8 py-5">Activity Type</th>
-                          <th className="px-8 py-5">Quantity</th>
+                          <th className="px-8 py-5">Activity Details</th>
+                          <th className="px-8 py-5">Quantity Change</th>
+                          <th className="px-8 py-5">Unit Price</th>
                           <th className="px-8 py-5">Site / Source</th>
-                          <th className="px-8 py-5 text-right">Control</th>
+                          <th className="px-8 py-5 text-right">Actions</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-                        {historyMaterial.history && historyMaterial.history.length > 0 ? (
-                          historyMaterial.history.slice().reverse().map((entry) => (
+                        {filteredHistory.length > 0 ? (
+                          filteredHistory.map((entry) => (
                             <tr key={entry.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/50 transition-colors group">
                               <td className="px-8 py-5 text-xs font-bold text-slate-500 dark:text-slate-400">{new Date(entry.date).toLocaleDateString()}</td>
                               <td className="px-8 py-5">
                                 <div className="flex items-center gap-2">
                                   {entry.type === 'Purchase' ? (
-                                    <ShoppingCart size={14} className="text-emerald-500" />
+                                    <div className="p-1.5 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg text-emerald-600">
+                                      <ShoppingCart size={12} />
+                                    </div>
                                   ) : (
-                                    <TrendingDown size={14} className="text-blue-500" />
+                                    <div className="p-1.5 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-blue-600">
+                                      <TrendingDown size={12} />
+                                    </div>
                                   )}
                                   <span className={`text-[10px] font-black uppercase tracking-widest ${entry.type === 'Purchase' ? 'text-emerald-600' : 'text-blue-600'}`}>{entry.type}</span>
                                 </div>
-                                <p className="text-[10px] text-slate-400 font-medium mt-0.5">{entry.note}</p>
+                                <p className="text-[11px] text-slate-700 dark:text-slate-300 font-semibold mt-1">{entry.note}</p>
                               </td>
-                              <td className="px-8 py-5 text-sm font-black text-slate-900 dark:text-slate-100">
-                                {entry.type === 'Purchase' ? '+' : '-'}{entry.quantity.toLocaleString()} {historyMaterial.unit}
+                              <td className="px-8 py-5">
+                                <span className={`text-sm font-black ${entry.type === 'Purchase' ? 'text-emerald-600' : 'text-blue-600'}`}>
+                                  {entry.type === 'Purchase' ? '+' : '-'}{entry.quantity.toLocaleString()} {historyMaterial.unit}
+                                </span>
+                              </td>
+                              <td className="px-8 py-5">
+                                <span className="text-xs font-bold text-slate-600 dark:text-slate-400">
+                                  {formatCurrency(entry.unitPrice || historyMaterial.costPerUnit)}
+                                </span>
                               </td>
                               <td className="px-8 py-5">
                                 <div className="flex items-center gap-2">
-                                  <div className="p-1.5 bg-slate-100 dark:bg-slate-700 rounded-lg">
-                                    {entry.projectId ? <Briefcase size={12} className="text-blue-500" /> : <Users size={12} className="text-emerald-500" />}
-                                  </div>
+                                  {entry.projectId ? <Briefcase size={12} className="text-blue-500" /> : <Users size={12} className="text-emerald-500" />}
                                   <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-tight">
-                                    {entry.projectId ? projects.find(p => p.id === entry.projectId)?.name : vendors.find(v => v.id === entry.vendorId)?.name || 'Direct Entry'}
+                                    {entry.projectId ? projects.find(p => p.id === entry.projectId)?.name : vendors.find(v => v.id === entry.vendorId)?.name || 'Manual Log'}
                                   </span>
                                 </div>
                               </td>
                               <td className="px-8 py-5 text-right">
-                                <button onClick={() => handleDeleteHistoryEntry(historyMaterial, entry.id)} className="p-2 text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={16} /></button>
+                                <button onClick={() => handleDeleteHistoryEntry(historyMaterial, entry.id)} className="p-2.5 text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-all"><Trash2 size={16} /></button>
                               </td>
                             </tr>
                           ))
                         ) : (
                           <tr>
-                            <td colSpan={5} className="px-8 py-20 text-center">
+                            <td colSpan={6} className="px-8 py-20 text-center">
                               <History size={32} className="mx-auto text-slate-200 mb-2 opacity-30" />
-                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">No activity recorded for this asset</p>
+                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">No logs match your filter</p>
                             </td>
                           </tr>
                         )}

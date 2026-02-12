@@ -226,9 +226,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const newVendors = prev.vendors.map(v => v.id === pay.vendorId ? { ...v, balance: Math.max(0, v.balance - pay.amount) } : v);
     return { ...prev, payments: [...prev.payments, pay], vendors: newVendors };
   }, "Record Vendor Payment");
-  const updatePayment = (p: Payment) => updateState(prev => ({
-    ...prev, payments: prev.payments.map(pay => pay.id === p.id ? p : pay)
-  }), "Update Payment");
+
+  const updatePayment = (p: Payment) => updateState(prev => {
+    const oldPayment = prev.payments.find(pay => pay.id === p.id);
+    if (!oldPayment) return prev;
+
+    const diff = p.amount - oldPayment.amount; // difference to subtract from vendor balance
+    const newVendors = prev.vendors.map(v => 
+      v.id === p.vendorId ? { ...v, balance: Math.max(0, v.balance - diff) } : v
+    );
+
+    return {
+      ...prev,
+      payments: prev.payments.map(pay => pay.id === p.id ? p : pay),
+      vendors: newVendors
+    };
+  }, "Update Payment Record");
+
   const deletePayment = (id: string) => updateState(prev => {
     const paymentToDelete = prev.payments.find(p => p.id === id);
     const newVendors = paymentToDelete
