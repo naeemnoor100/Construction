@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Briefcase, 
   TrendingDown, 
@@ -71,13 +71,12 @@ export const Dashboard: React.FC = () => {
   const totalIncome = incomes.reduce((sum, i) => sum + i.amount, 0);
   const activeProjects = projects.filter(p => p.status === 'Active').length;
 
-  const chartData = [
-    { name: 'Jan', exp: 4000, inc: 6000 },
-    { name: 'Feb', exp: 3000, inc: 5500 },
-    { name: 'Mar', exp: totalExpenses, inc: totalIncome },
-    { name: 'Apr', exp: 2780, inc: 4200 },
-    { name: 'May', exp: 1890, inc: 4800 },
-  ];
+  const chartData = useMemo(() => {
+    const month = new Date().toLocaleString('default', { month: 'short' });
+    return [
+      { name: month, exp: totalExpenses, inc: totalIncome }
+    ];
+  }, [totalExpenses, totalIncome]);
 
   const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444'];
 
@@ -118,20 +117,20 @@ export const Dashboard: React.FC = () => {
       <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard 
           title="Active Sites" value={activeProjects.toString()} 
-          change="+1 this mo" isPositive={true} icon={<Briefcase />} color="bg-blue-600"
+          change="Real-time" isPositive={true} icon={<Briefcase />} color="bg-blue-600"
         />
         <StatCard 
           title="Collections" value={formatCurrency(totalIncome)} 
-          change="+8% vs mo" isPositive={true} icon={<ArrowUpCircle />} color="bg-emerald-500"
+          change="Actuals" isPositive={true} icon={<ArrowUpCircle />} color="bg-emerald-500"
         />
         <StatCard 
           title="Expenditure" value={formatCurrency(totalExpenses)} 
-          change="+12% vs mo" isPositive={false} icon={<TrendingDown />} color="bg-red-500"
+          change="Incurred" isPositive={false} icon={<TrendingDown />} color="bg-red-500"
         />
         <StatCard 
           title="Asset Value" 
           value={formatCurrency(materials.reduce((acc, m) => acc + ((m.totalPurchased - m.totalUsed) * m.costPerUnit), 0))} 
-          change="Stable" isPositive={true} icon={<Layers />} color="bg-amber-500"
+          change="Stock" isPositive={true} icon={<Layers />} color="bg-amber-500"
         />
       </div>
 
@@ -139,10 +138,7 @@ export const Dashboard: React.FC = () => {
         <div className="lg:col-span-2 bg-white p-5 sm:p-6 rounded-2xl border border-slate-200 shadow-sm">
           <div className="flex justify-between items-center mb-6">
             <h3 className="font-bold text-slate-900 text-sm uppercase tracking-tight">Income vs Expense</h3>
-            <select className="bg-slate-50 border border-slate-200 text-[10px] font-bold rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-blue-500 uppercase tracking-widest">
-              <option>Last 6 Months</option>
-              <option>This Year</option>
-            </select>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest bg-slate-50 px-2 py-1 rounded">Live Data</span>
           </div>
           <div className="h-56 sm:h-72">
             <ResponsiveContainer width="100%" height="100%">
@@ -155,8 +151,8 @@ export const Dashboard: React.FC = () => {
                   contentStyle={{borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', fontSize: '12px'}}
                   cursor={{fill: '#f8fafc'}}
                 />
-                <Bar name="Income" dataKey="inc" fill="#10b981" radius={[6, 6, 0, 0]} barSize={20} />
-                <Bar name="Expense" dataKey="exp" fill="#ef4444" radius={[6, 6, 0, 0]} barSize={20} />
+                <Bar name="Income" dataKey="inc" fill="#10b981" radius={[6, 6, 0, 0]} barSize={40} />
+                <Bar name="Expense" dataKey="exp" fill="#ef4444" radius={[6, 6, 0, 0]} barSize={40} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -165,19 +161,23 @@ export const Dashboard: React.FC = () => {
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col">
           <h3 className="font-bold text-slate-900 text-sm uppercase tracking-tight mb-4">Site Budgets</h3>
           <div className="flex-1 min-h-[220px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={projects.map(p => ({ name: p.name, value: p.budget }))}
-                  cx="50%" cy="50%" innerRadius={55} outerRadius={75} paddingAngle={8} dataKey="value"
-                >
-                  {projects.map((_, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
+            {projects.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={projects.map(p => ({ name: p.name, value: p.budget }))}
+                    cx="50%" cy="50%" innerRadius={55} outerRadius={75} paddingAngle={8} dataKey="value"
+                  >
+                    {projects.map((_, index) => (
+                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(val: number) => formatCurrency(val)} />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex items-center justify-center text-slate-300 text-[10px] font-bold uppercase tracking-widest">No Projects Launched</div>
+            )}
           </div>
           <div className="space-y-2 mt-2">
             {projects.slice(0, 3).map((p, idx) => (

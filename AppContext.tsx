@@ -29,6 +29,10 @@ interface AppContextType extends AppState {
   addIncome: (i: Income) => void;
   updateIncome: (i: Income) => void;
   deleteIncome: (id: string) => void;
+  addTradeCategory: (cat: string) => void;
+  removeTradeCategory: (cat: string) => void;
+  addStockingUnit: (unit: string) => void;
+  removeStockingUnit: (unit: string) => void;
   loadExternalState: (newState: AppState) => void;
   enableCloudSync: (id: string) => void;
   disableCloudSync: () => void;
@@ -78,7 +82,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const newState = updater(prev);
       if (actionName) {
         setPast(p => [{ state: prev, actionName }, ...p].slice(0, MAX_HISTORY));
-        setFuture([]); // New action clears future redo stack
+        setFuture([]); 
       }
       return { ...newState, lastUpdated: Date.now() };
     });
@@ -172,7 +176,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => clearTimeout(timer);
   }, [state, pushToCloud]);
 
-  // CRUD Actions with Action Names
   const updateUser = (u: User) => updateState(prev => ({ ...prev, currentUser: u }), "Update Profile");
   const setTheme = (theme: 'light' | 'dark') => updateState(prev => ({ ...prev, theme }), "Switch Theme");
 
@@ -209,9 +212,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const updateExpense = (e: Expense) => updateState(prev => ({
     ...prev, expenses: prev.expenses.map(exp => exp.id === e.id ? e : exp)
   }), "Update Expense");
-  const deleteExpense = (id: string) => updateState(prev => ({
-    ...prev, expenses: prev.expenses.filter(e => e.id !== id)
-  }), "Delete Expense Record");
+  const deleteExpense = (id: string) => updateState(prev => {
+    const expenseToDelete = prev.expenses.find(e => e.id === id);
+    const newVendors = (expenseToDelete && expenseToDelete.vendorId)
+      ? prev.vendors.map(v => v.id === expenseToDelete.vendorId ? { ...v, balance: Math.max(0, v.balance - expenseToDelete.amount) } : v)
+      : prev.vendors;
+    return { ...prev, expenses: prev.expenses.filter(e => e.id !== id), vendors: newVendors };
+  }, "Delete Expense Record");
 
   const addPayment = (pay: Payment) => updateState(prev => {
     const newVendors = prev.vendors.map(v => v.id === pay.vendorId ? { ...v, balance: Math.max(0, v.balance - pay.amount) } : v);
@@ -220,9 +227,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const updatePayment = (p: Payment) => updateState(prev => ({
     ...prev, payments: prev.payments.map(pay => pay.id === p.id ? p : pay)
   }), "Update Payment");
-  const deletePayment = (id: string) => updateState(prev => ({
-    ...prev, payments: prev.payments.filter(p => p.id !== id)
-  }), "Delete Payment Record");
+  const deletePayment = (id: string) => updateState(prev => {
+    const paymentToDelete = prev.payments.find(p => p.id === id);
+    const newVendors = paymentToDelete
+      ? prev.vendors.map(v => v.id === paymentToDelete.vendorId ? { ...v, balance: v.balance + paymentToDelete.amount } : v)
+      : prev.vendors;
+    return { ...prev, payments: prev.payments.filter(p => p.id !== id), vendors: newVendors };
+  }, "Delete Payment Record");
 
   const addIncome = (i: Income) => updateState(prev => ({ ...prev, incomes: [...prev.incomes, i] }), "Record Project Income");
   const updateIncome = (i: Income) => updateState(prev => ({
@@ -231,6 +242,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const deleteIncome = (id: string) => updateState(prev => ({
     ...prev, incomes: prev.incomes.filter(i => i.id !== id)
   }), "Delete Income Record");
+
+  const addTradeCategory = (cat: string) => updateState(prev => ({ ...prev, tradeCategories: [...new Set([...prev.tradeCategories, cat])] }), "Add Trade Category");
+  const removeTradeCategory = (cat: string) => updateState(prev => ({ ...prev, tradeCategories: prev.tradeCategories.filter(c => c !== cat) }), "Remove Trade Category");
+  
+  const addStockingUnit = (unit: string) => updateState(prev => ({ ...prev, stockingUnits: [...new Set([...prev.stockingUnits, unit])] }), "Add Stocking Unit");
+  const removeStockingUnit = (unit: string) => updateState(prev => ({ ...prev, stockingUnits: prev.stockingUnits.filter(u => u !== unit) }), "Remove Stocking Unit");
 
   const enableCloudSync = async (id: string) => {
     setIsSyncing(true);
@@ -264,6 +281,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     addExpense, updateExpense, deleteExpense,
     addPayment, updatePayment, deletePayment,
     addIncome, updateIncome, deleteIncome,
+    addTradeCategory, removeTradeCategory, addStockingUnit, removeStockingUnit,
     loadExternalState, enableCloudSync, disableCloudSync, forceSync,
     undo, redo, canUndo: past.length > 0, canRedo: future.length > 0,
     lastActionName: past.length > 0 ? past[0].actionName : '',

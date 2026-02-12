@@ -23,7 +23,7 @@ export interface Project {
   description?: string;
 }
 
-export type VendorCategory = 'Material' | 'Labor' | 'Equipment';
+export type VendorCategory = string;
 
 export interface Vendor {
   id: string;
@@ -34,7 +34,7 @@ export interface Vendor {
   balance: number;
 }
 
-export type MaterialUnit = 'Bag' | 'Ton' | 'KG' | 'Piece' | 'Cubic Meter';
+export type MaterialUnit = string;
 
 export interface StockHistoryEntry {
   id: string;
@@ -68,15 +68,14 @@ export interface Expense {
   paymentMethod: PaymentMethod;
   notes: string;
   invoiceUrl?: string;
-  // Added 'Equipment' to the category union to support initial mock data and vendor types.
-  category: 'Material' | 'Labor' | 'Equipment' | 'Overhead' | 'Permit';
+  category: string;
 }
 
 export interface Payment {
   id: string;
   date: string;
   vendorId: string;
-  projectId: string; // Mandatory link to a project
+  projectId: string;
   amount: number;
   method: PaymentMethod;
   reference?: string;
@@ -98,6 +97,8 @@ export interface AppState {
   expenses: Expense[];
   payments: Payment[];
   incomes: Income[];
+  tradeCategories: string[];
+  stockingUnits: string[];
   currentUser: User;
   theme: 'light' | 'dark';
   syncId?: string;

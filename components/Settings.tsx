@@ -14,19 +14,32 @@ import {
   Cloud,
   ChevronRight,
   LogOut,
-  Zap
+  Zap,
+  Plus,
+  X,
+  List,
+  Package,
+  Layers
 } from 'lucide-react';
 import { useApp } from '../AppContext';
 
 export const Settings: React.FC = () => {
-  const { currentUser, updateUser, syncId, theme, setTheme } = useApp();
-  const [activeSection, setActiveSection] = useState<'profile' | 'company' | 'system'>('profile');
+  const { 
+    currentUser, updateUser, syncId, theme, setTheme, 
+    tradeCategories, addTradeCategory, removeTradeCategory,
+    stockingUnits, addStockingUnit, removeStockingUnit 
+  } = useApp();
+  
+  const [activeSection, setActiveSection] = useState<'profile' | 'company' | 'system' | 'master-lists'>('profile');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+
+  const [newTradeCat, setNewTradeCat] = useState('');
+  const [newStockUnit, setNewStockUnit] = useState('');
 
   const [profileData, setProfileData] = useState({
     name: currentUser.name,
     email: currentUser.email,
-    phone: '+91 98765 43210' // Placeholder for additional fields
+    phone: '+91 98765 43210'
   });
 
   const [companyData, setCompanyData] = useState({
@@ -40,7 +53,6 @@ export const Settings: React.FC = () => {
     e.preventDefault();
     setSaveStatus('saving');
     
-    // Update global user state
     updateUser({
       ...currentUser,
       name: profileData.name,
@@ -53,6 +65,22 @@ export const Settings: React.FC = () => {
     }, 800);
   };
 
+  const handleAddTradeCat = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newTradeCat.trim()) {
+      addTradeCategory(newTradeCat.trim());
+      setNewTradeCat('');
+    }
+  };
+
+  const handleAddStockUnit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newStockUnit.trim()) {
+      addStockingUnit(newStockUnit.trim());
+      setNewStockUnit('');
+    }
+  };
+
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       <div className="flex justify-between items-end">
@@ -62,7 +90,7 @@ export const Settings: React.FC = () => {
         </div>
         <div className="hidden sm:block">
           <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700">
-            Version 2.4.0-Stable
+            Version 2.5.0-Stable
           </span>
         </div>
       </div>
@@ -85,6 +113,14 @@ export const Settings: React.FC = () => {
             <Building2 size={18} />
             <span className="text-sm font-bold">Company Info</span>
             {activeSection === 'company' && <ChevronRight size={14} className="ml-auto" />}
+          </button>
+          <button 
+            onClick={() => setActiveSection('master-lists')}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeSection === 'master-lists' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-600 dark:text-slate-400 hover:bg-white dark:hover:bg-slate-800 hover:shadow-sm'}`}
+          >
+            <List size={18} />
+            <span className="text-sm font-bold">Master Lists</span>
+            {activeSection === 'master-lists' && <ChevronRight size={14} className="ml-auto" />}
           </button>
           <button 
             onClick={() => setActiveSection('system')}
@@ -235,6 +271,66 @@ export const Settings: React.FC = () => {
                    <button className="flex items-center gap-2 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 px-8 py-3.5 rounded-2xl font-bold shadow-lg shadow-slate-200 dark:shadow-none transition-all active:scale-95">
                       <Save size={18} /> Save Company Details
                    </button>
+                </div>
+              </div>
+            )}
+
+            {activeSection === 'master-lists' && (
+              <div className="p-8 space-y-10">
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3">
+                    <Layers size={20} className="text-blue-600" />
+                    <h3 className="font-bold text-slate-900 dark:text-white">Trade & Expense Categories</h3>
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Manage categories used for vendors and financial classification.</p>
+                  
+                  <div className="flex flex-wrap gap-2 min-h-[44px] p-2 bg-slate-50 dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-700">
+                    {tradeCategories.map(cat => (
+                      <span key={cat} className="flex items-center gap-1.5 pl-3 pr-2 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-[10px] font-black uppercase tracking-widest text-slate-700 dark:text-slate-300 shadow-sm animate-in zoom-in-95">
+                        {cat}
+                        <button onClick={() => removeTradeCategory(cat)} className="p-1 hover:text-red-500 transition-colors"><X size={12} /></button>
+                      </span>
+                    ))}
+                  </div>
+
+                  <form onSubmit={handleAddTradeCat} className="flex gap-2">
+                    <input 
+                      type="text" 
+                      placeholder="Add new category..." 
+                      className="flex-1 px-4 py-3 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500 dark:text-white"
+                      value={newTradeCat}
+                      onChange={e => setNewTradeCat(e.target.value)}
+                    />
+                    <button type="submit" className="p-3 bg-blue-600 text-white rounded-xl shadow-md hover:bg-blue-700 active:scale-95 transition-all"><Plus size={20} /></button>
+                  </form>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3">
+                    <Package size={20} className="text-emerald-600" />
+                    <h3 className="font-bold text-slate-900 dark:text-white">Stocking Units</h3>
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Define measurement units for your material inventory registry.</p>
+                  
+                  <div className="flex flex-wrap gap-2 min-h-[44px] p-2 bg-slate-50 dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-700">
+                    {stockingUnits.map(unit => (
+                      <span key={unit} className="flex items-center gap-1.5 pl-3 pr-2 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-[10px] font-black uppercase tracking-widest text-slate-700 dark:text-slate-300 shadow-sm animate-in zoom-in-95">
+                        {unit}
+                        <button onClick={() => removeStockingUnit(unit)} className="p-1 hover:text-red-500 transition-colors"><X size={12} /></button>
+                      </span>
+                    ))}
+                  </div>
+
+                  <form onSubmit={handleAddStockUnit} className="flex gap-2">
+                    <input 
+                      type="text" 
+                      placeholder="Add new unit (e.g. Gallon)..." 
+                      className="flex-1 px-4 py-3 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500 dark:text-white"
+                      value={newStockUnit}
+                      onChange={e => setNewStockUnit(e.target.value)}
+                    />
+                    <button type="submit" className="p-3 bg-emerald-600 text-white rounded-xl shadow-md hover:bg-emerald-700 active:scale-95 transition-all"><Plus size={20} /></button>
+                  </form>
                 </div>
               </div>
             )}

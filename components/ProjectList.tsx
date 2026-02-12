@@ -21,10 +21,12 @@ import {
   Save,
   PieChart,
   Tag,
-  Users
+  Users,
+  Package,
+  CheckCircle2
 } from 'lucide-react';
 import { useApp } from '../AppContext';
-import { ProjectStatus, Project, Expense, Income, PaymentMethod } from '../types';
+import { ProjectStatus, Project, Expense, Income, PaymentMethod, Material } from '../types';
 
 const formatCurrency = (val: number) => `Rs. ${val.toLocaleString('en-IN')}`;
 
@@ -33,7 +35,8 @@ export const ProjectList: React.FC = () => {
     projects, expenses, vendors, materials, incomes, 
     addProject, updateProject, deleteProject, 
     addExpense, updateExpense, deleteExpense,
-    addIncome, updateIncome, deleteIncome 
+    addIncome, updateIncome, deleteIncome,
+    updateMaterial
   } = useApp();
   
   const [filter, setFilter] = useState<ProjectStatus | 'All'>('All');
@@ -44,6 +47,7 @@ export const ProjectList: React.FC = () => {
   
   const [showQuickExpense, setShowQuickExpense] = useState(false);
   const [showQuickIncome, setShowQuickIncome] = useState(false);
+  const [showInventoryUsageModal, setShowInventoryUsageModal] = useState(false);
 
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
   const [editingIncome, setEditingIncome] = useState<Income | null>(null);
@@ -55,6 +59,7 @@ export const ProjectList: React.FC = () => {
         setViewingProject(null);
         setShowQuickExpense(false);
         setShowQuickIncome(false);
+        setShowInventoryUsageModal(false);
         setEditingExpense(null);
         setEditingIncome(null);
       }
@@ -74,6 +79,10 @@ export const ProjectList: React.FC = () => {
 
   const [incomeFormData, setIncomeFormData] = useState({
     amount: '', date: new Date().toISOString().split('T')[0], description: '', method: 'Bank' as PaymentMethod
+  });
+
+  const [inventoryUsageForm, setInventoryUsageForm] = useState({
+    materialId: '', quantity: '', date: new Date().toISOString().split('T')[0], note: ''
   });
 
   const filteredProjects = projects.filter(p => filter === 'All' || p.status === filter);
@@ -118,6 +127,50 @@ export const ProjectList: React.FC = () => {
     setShowQuickExpense(false);
     setEditingExpense(null);
     setExpenseFormData({ amount: '', date: new Date().toISOString().split('T')[0], category: 'Material', vendorId: '', notes: '', paymentMethod: 'Bank' });
+  };
+
+  const handleInventoryUsageSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!viewingProject || !inventoryUsageForm.materialId) return;
+
+    const material = materials.find(m => m.id === inventoryUsageForm.materialId);
+    const qty = parseFloat(inventoryUsageForm.quantity) || 0;
+
+    if (!material) return;
+
+    if (material.totalPurchased - material.totalUsed < qty) {
+      alert("Error: Insufficient stock available for this allocation.");
+      return;
+    }
+
+    // 1. Update Inventory State
+    updateMaterial({
+      ...material,
+      totalUsed: material.totalUsed + qty,
+      history: [...(material.history || []), {
+        id: 'sh' + Date.now(),
+        date: inventoryUsageForm.date,
+        type: 'Usage',
+        quantity: qty,
+        projectId: viewingProject.id,
+        note: inventoryUsageForm.note || `Site Consumption: ${viewingProject.name}`
+      }]
+    });
+
+    // 2. Add Expense entry to Project
+    const totalCost = qty * material.costPerUnit;
+    addExpense({
+      id: 'e-inv-' + Date.now(),
+      date: inventoryUsageForm.date,
+      projectId: viewingProject.id,
+      amount: totalCost,
+      paymentMethod: 'Bank', // Internal allocation
+      category: 'Material',
+      notes: `Inventory Consumption: ${qty} ${material.unit} of ${material.name} used on site.`
+    });
+
+    setShowInventoryUsageModal(false);
+    setInventoryUsageForm({ materialId: '', quantity: '', date: new Date().toISOString().split('T')[0], note: '' });
   };
 
   const handleQuickIncomeSubmit = (e: React.FormEvent) => {
@@ -397,9 +450,20 @@ export const ProjectList: React.FC = () => {
                     </div>
                     <div className="p-4 sm:p-0 flex gap-2 w-full sm:w-auto">
                       {activeDetailTab === 'expenses' ? (
-                        <button onClick={() => { setEditingExpense(null); setShowQuickExpense(true); }} className="flex-1 sm:flex-none bg-red-600 text-white px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-red-700 shadow-xl active:scale-95 transition-all">
-                          <Receipt size={16} /> Record Cost
-                        </button>
+                        <>
+                          <button 
+                            onClick={() => setShowInventoryUsageModal(true)} 
+                            className="flex-1 sm:flex-none bg-blue-600 text-white px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-blue-700 shadow-xl active:scale-95 transition-all"
+                          >
+                            <Package size={16} /> Record Expense from Inventory
+                          </button>
+                          <button 
+                            onClick={() => { setEditingExpense(null); setShowQuickExpense(true); }} 
+                            className="flex-1 sm:flex-none bg-red-600 text-white px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-red-700 shadow-xl active:scale-95 transition-all"
+                          >
+                            <Receipt size={16} /> Record Cost
+                          </button>
+                        </>
                       ) : (
                         <button onClick={() => { setEditingIncome(null); setShowQuickIncome(true); }} className="flex-1 sm:flex-none bg-emerald-600 text-white px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-emerald-700 shadow-xl active:scale-95 transition-all">
                           <ArrowDownCircle size={16} /> Record Payment
@@ -463,6 +527,99 @@ export const ProjectList: React.FC = () => {
           </div>
         );
       })()}
+
+      {/* Record Expense from Inventory Modal */}
+      {showInventoryUsageModal && viewingProject && (
+        <div className="fixed inset-0 z-[125] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
+          <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-w-lg shadow-2xl overflow-hidden mobile-sheet animate-in slide-in-from-bottom-8 duration-300">
+             <div className="p-6 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-blue-50/30 dark:bg-blue-900/20">
+                <div className="flex gap-4 items-center">
+                  <div className="p-3 bg-blue-600 text-white rounded-2xl shadow-lg">
+                    <Package size={24} />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">Inventory Consumption</h2>
+                    <p className="text-[10px] text-slate-500 font-bold uppercase">Assign stock to site expense</p>
+                  </div>
+                </div>
+                <button onClick={() => setShowInventoryUsageModal(false)} className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white"><X size={28} /></button>
+             </div>
+             <form onSubmit={handleInventoryUsageSubmit} className="p-6 space-y-5 pb-safe">
+                <div className="space-y-1.5">
+                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Select Material from Stock</label>
+                   <select 
+                    className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none appearance-none" 
+                    value={inventoryUsageForm.materialId} 
+                    onChange={e => setInventoryUsageForm(p => ({ ...p, materialId: e.target.value }))} 
+                    required
+                  >
+                    <option value="">Choose Asset...</option>
+                    {materials.map(m => (
+                      <option key={m.id} value={m.id}>
+                        {m.name} ({m.totalPurchased - m.totalUsed} {m.unit} In-Stock)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                   <div className="space-y-1.5">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Consumption Qty</label>
+                      <input 
+                        type="number" 
+                        required 
+                        step="0.01" 
+                        placeholder="0.00"
+                        className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white" 
+                        value={inventoryUsageForm.quantity} 
+                        onChange={e => setInventoryUsageForm(p => ({ ...p, quantity: e.target.value }))} 
+                      />
+                   </div>
+                   <div className="space-y-1.5">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Allocation Date</label>
+                      <input 
+                        type="date" 
+                        required 
+                        className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white" 
+                        value={inventoryUsageForm.date} 
+                        onChange={e => setInventoryUsageForm(p => ({ ...p, date: e.target.value }))} 
+                      />
+                   </div>
+                </div>
+
+                <div className="space-y-1.5">
+                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Consumption Note (Optional)</label>
+                   <textarea 
+                    rows={2} 
+                    placeholder="e.g. Columns for 4th block..."
+                    className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" 
+                    value={inventoryUsageForm.note} 
+                    onChange={e => setInventoryUsageForm(p => ({ ...p, note: e.target.value }))} 
+                  />
+                </div>
+
+                {inventoryUsageForm.materialId && (
+                  <div className="bg-slate-900 p-4 rounded-2xl text-white flex justify-between items-center shadow-xl">
+                    <div>
+                      <p className="text-[9px] font-black text-white/50 uppercase tracking-widest">Calculated Expense Value</p>
+                      <p className="text-lg font-black text-blue-400">
+                        {(() => {
+                          const mat = materials.find(m => m.id === inventoryUsageForm.materialId);
+                          return mat ? formatCurrency((parseFloat(inventoryUsageForm.quantity) || 0) * mat.costPerUnit) : 'Rs. 0';
+                        })()}
+                      </p>
+                    </div>
+                    <CheckCircle2 size={24} className="text-blue-500 opacity-50" />
+                  </div>
+                )}
+
+                <button type="submit" className="w-full bg-blue-600 text-white py-4 rounded-3xl font-black shadow-lg shadow-blue-100 active:scale-95 transition-all text-sm uppercase tracking-widest flex items-center justify-center gap-2">
+                  Confirm Site Consumption
+                </button>
+             </form>
+          </div>
+        </div>
+      )}
 
       {/* Quick Record Modals */}
       {showQuickExpense && viewingProject && (
