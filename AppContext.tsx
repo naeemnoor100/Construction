@@ -1,8 +1,6 @@
-
 import React, { createContext, useContext, useState, useCallback, useMemo, useEffect } from 'react';
 import { AppState, Project, Vendor, Material, Expense, Payment, Income, User } from './types';
 import { INITIAL_STATE } from './constants';
-import { GoogleGenAI } from "@google/genai";
 
 interface AppContextType extends AppState {
   updateUser: (u: User) => void;
@@ -34,7 +32,6 @@ interface AppContextType extends AppState {
   removeStockingUnit: (unit: string) => void;
   addSiteStatus: (status: string) => void;
   removeSiteStatus: (status: string) => void;
-  getProjectHealth: (projectId: string) => Promise<string>;
   isLoading: boolean;
   isSyncing: boolean;
   syncError: boolean;
@@ -220,10 +217,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       let nextVendors = [...prev.vendors];
       
       if (oldPay) {
-        // Revert old payment impact on balance
         nextVendors = nextVendors.map(v => v.id === oldPay.vendorId ? { ...v, balance: v.balance + oldPay.amount } : v);
       }
-      // Apply new payment impact
       nextVendors = nextVendors.map(v => v.id === p.vendorId ? { ...v, balance: Math.max(0, v.balance - p.amount) } : v);
 
       return {
@@ -280,26 +275,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const addSiteStatus = (status: string) => setState(prev => ({ ...prev, siteStatuses: [...prev.siteStatuses, status] }));
   const removeSiteStatus = (status: string) => setState(prev => ({ ...prev, siteStatuses: prev.siteStatuses.filter(s => s !== status) }));
 
-  const getProjectHealth = async (projectId: string) => {
-    const project = state.projects.find(p => p.id === projectId);
-    if (!project) return "Project not found.";
-    const pExpenses = state.expenses.filter(e => e.projectId === projectId);
-    const pIncomes = state.incomes.filter(i => i.projectId === projectId);
-    const spent = pExpenses.reduce((sum, e) => sum + e.amount, 0);
-    const collected = pIncomes.reduce((sum, i) => sum + i.amount, 0);
-    try {
-      /* Fix: Using process.env.API_KEY directly as required by guidelines */
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: `Analyze: ${project.name}, Budget: ${project.budget}, Spent: ${spent}, Collected: ${collected}. Advice in Urdu and English.`,
-      });
-      return response.text || "No analysis available.";
-    } catch (e) {
-      return "AI Analysis failed to load.";
-    }
-  };
-
   const value = useMemo(() => ({
     ...state,
     updateUser, setTheme,
@@ -313,7 +288,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     addTradeCategory, removeTradeCategory,
     addStockingUnit, removeStockingUnit,
     addSiteStatus, removeSiteStatus,
-    getProjectHealth,
     isLoading, isSyncing, syncError, lastSynced,
     undo: () => {}, redo: () => {}, canUndo: false, canRedo: false, lastActionName: ''
   }), [state, isLoading, isSyncing, syncError, lastSynced]);

@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo } from 'react';
 import { 
   Briefcase, 
@@ -9,13 +8,12 @@ import {
   Plus,
   X,
   Activity,
-  Sparkles,
-  Loader2,
-  Bot,
   ArrowUpCircle,
   Calendar,
   AlertTriangle,
-  CheckCircle2
+  CheckCircle2,
+  Package,
+  ArrowRight
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -60,10 +58,8 @@ const DashboardCard: React.FC<{
 );
 
 export const Dashboard: React.FC = () => {
-  const { projects, expenses, materials, incomes, siteStatuses, getProjectHealth, addProject } = useApp();
+  const { projects, expenses, materials, incomes, addProject } = useApp();
   const [showModal, setShowModal] = useState(false);
-  const [analyzingProject, setAnalyzingProject] = useState<string | null>(null);
-  const [aiReport, setAiReport] = useState<{ id: string, text: string } | null>(null);
 
   const [formData, setFormData] = useState({
     name: '', client: '', location: '', budget: '', startDate: new Date().toISOString().split('T')[0], status: 'Active'
@@ -82,12 +78,12 @@ export const Dashboard: React.FC = () => {
     }).sort((a, b) => b.utilization - a.utilization);
   }, [projects, expenses]);
 
-  const handleAiCheck = async (projectId: string) => {
-    setAnalyzingProject(projectId);
-    const report = await getProjectHealth(projectId);
-    setAiReport({ id: projectId, text: report });
-    setAnalyzingProject(null);
-  };
+  const topMaterials = useMemo(() => {
+    return [...materials]
+      .map(m => ({ ...m, value: (m.totalPurchased - m.totalUsed) * m.costPerUnit }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 5);
+  }, [materials]);
 
   const handleCreateProject = (e: React.FormEvent) => {
     e.preventDefault();
@@ -107,7 +103,6 @@ export const Dashboard: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">Portfolio Summary</h1>
@@ -123,7 +118,6 @@ export const Dashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Stats Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <DashboardCard title="Active Sites" value={activeProjectsCount.toString()} icon={<Briefcase size={22} />} colorClass="bg-blue-600" />
         <DashboardCard title="Revenue" value={formatCurrency(totalIncome)} icon={<ArrowUpCircle size={22} />} trend="12%" isPositive={true} colorClass="bg-emerald-600" />
@@ -132,7 +126,6 @@ export const Dashboard: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Project Utilization Chart */}
         <div className="lg:col-span-2 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col">
           <div className="p-6 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
             <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest flex items-center gap-2">
@@ -157,53 +150,39 @@ export const Dashboard: React.FC = () => {
           </div>
         </div>
 
-        {/* Project Health Feed */}
         <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col">
           <div className="p-6 border-b border-slate-100 dark:border-slate-700">
             <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest flex items-center gap-2">
-              <Sparkles size={18} className="text-blue-500" /> Site Health Checks
+              <Package size={18} className="text-blue-500" /> Top Material Assets
             </h3>
           </div>
           <div className="flex-1 overflow-y-auto no-scrollbar p-4 space-y-4">
-            {projects.length > 0 ? projects.slice(0, 5).map(p => (
-              <div key={p.id} className="group p-4 border border-slate-100 dark:border-slate-700 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-all">
-                <div className="flex justify-between items-start mb-2">
+            {topMaterials.length > 0 ? topMaterials.map(m => (
+              <div key={m.id} className="group p-4 border border-slate-100 dark:border-slate-700 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-all">
+                <div className="flex justify-between items-start">
                   <div>
-                    <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase">{p.name}</h4>
-                    <p className="text-[10px] text-slate-500">{p.client}</p>
+                    <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase">{m.name}</h4>
+                    <p className="text-[10px] text-slate-500">Available: {(m.totalPurchased - m.totalUsed).toLocaleString()} {m.unit}</p>
                   </div>
-                  <button 
-                    onClick={() => handleAiCheck(p.id)}
-                    disabled={analyzingProject === p.id}
-                    className="p-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-600 hover:text-white transition-all disabled:opacity-50"
-                  >
-                    {analyzingProject === p.id ? <Loader2 size={14} className="animate-spin" /> : <Bot size={14} />}
-                  </button>
+                  <span className="text-xs font-black text-slate-900 dark:text-white">{formatCurrency(m.value)}</span>
                 </div>
-                {aiReport && aiReport.id === p.id ? (
-                  <div className="mt-2 text-[10px] text-slate-600 dark:text-slate-300 bg-blue-50/50 dark:bg-blue-900/20 p-3 rounded-lg border border-blue-100 dark:border-blue-800 line-clamp-3">
-                    {aiReport.text}
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2 mt-2">
-                    <div className="h-1.5 flex-1 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
-                      <div className="h-full bg-blue-500" style={{ width: '65%' }}></div>
+                <div className="flex items-center gap-2 mt-3">
+                    <div className="h-1 bg-slate-100 dark:bg-slate-700 flex-1 rounded-full overflow-hidden">
+                       <div className="h-full bg-blue-600" style={{ width: `${Math.min(100, (m.value / inventoryValue) * 100 * 2)}%` }}></div>
                     </div>
-                    <span className="text-[10px] font-bold text-slate-400">Ready</span>
-                  </div>
-                )}
+                    <ArrowRight size={12} className="text-slate-300" />
+                </div>
               </div>
             )) : (
               <div className="h-full flex flex-col items-center justify-center text-slate-400 py-10">
-                <Calendar size={40} className="opacity-20 mb-2" />
-                <p className="text-xs font-bold uppercase">No data feed</p>
+                <Package size={40} className="opacity-20 mb-2" />
+                <p className="text-xs font-bold uppercase">Inventory Empty</p>
               </div>
             )}
           </div>
         </div>
       </div>
 
-      {/* Secondary Row: Recent Financials & Issues */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
           <div className="p-6 border-b border-slate-100 dark:border-slate-700">
@@ -235,21 +214,20 @@ export const Dashboard: React.FC = () => {
               <div className="p-2 bg-orange-500 text-white rounded-lg"><AlertTriangle size={18} /></div>
               <div>
                 <p className="text-xs font-bold text-slate-900 dark:text-white">Budget Overrun Risk</p>
-                <p className="text-[10px] text-slate-500">2 projects are exceeding 90% budget utilization.</p>
+                <p className="text-[10px] text-slate-500">Check projects exceeding 90% budget utilization.</p>
               </div>
             </div>
             <div className="flex items-center gap-4 p-4 bg-emerald-50 dark:bg-emerald-900/10 border border-emerald-100 dark:border-emerald-900/50 rounded-xl">
               <div className="p-2 bg-emerald-500 text-white rounded-lg"><CheckCircle2 size={18} /></div>
               <div>
-                <p className="text-xs font-bold text-slate-900 dark:text-white">Inventory Re-stocked</p>
-                <p className="text-[10px] text-slate-500">Cement and Steel levels are stable for all active sites.</p>
+                <p className="text-xs font-bold text-slate-900 dark:text-white">Inventory Levels Stable</p>
+                <p className="text-[10px] text-slate-500">Asset levels are verified across active sites.</p>
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Modal - New Project */}
       {showModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
           <div className="bg-white dark:bg-slate-800 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">

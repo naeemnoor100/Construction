@@ -66,7 +66,6 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
     { id: 'materials', label: 'Inventory', icon: <Package size={18} /> },
     { id: 'expenses', label: 'Financials', icon: <Receipt size={18} /> },
     { id: 'reports', label: 'Reports', icon: <BarChart3 size={18} /> },
-    { id: 'ai', label: 'AI Assistant', icon: <Bot size={18} />, isSpecial: true },
   ];
 
   return (
@@ -76,7 +75,6 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
         <div className="flex flex-col h-full">
           <div className="h-16 flex items-center px-6 border-b border-slate-100 dark:border-slate-700">
             <div className="flex items-center gap-2.5">
-              {/* Fix: removed invalid 'weight' prop from Lucide icon which caused TS error */}
               <div className="bg-[#FF5A00] p-1.5 rounded text-white"><Briefcase size={20} /></div>
               <h1 className="text-lg font-black text-[#003366] dark:text-white tracking-tighter">BUILDTRACK<span className="text-[#FF5A00]">PRO</span></h1>
             </div>

@@ -41,7 +41,6 @@
             background-color: #0f172a;
         }
         
-        /* Custom scrollbar */
         ::-webkit-scrollbar {
             width: 6px;
             height: 6px;
@@ -62,23 +61,6 @@
         }
         .pt-safe {
             padding-top: var(--safe-area-inset-top);
-        }
-
-        /* Mobile Bottom Sheet Style Modals */
-        @media (max-width: 640px) {
-            .mobile-sheet {
-                margin-top: auto !important;
-                border-bottom-left-radius: 0 !important;
-                border-bottom-right-radius: 0 !important;
-                max-height: 92vh !important;
-                width: 100% !important;
-                animation: slideUp 0.3s ease-out forwards;
-            }
-        }
-
-        @keyframes slideUp {
-            from { transform: translateY(100%); }
-            to { transform: translateY(0); }
         }
 
         .procore-shadow {
