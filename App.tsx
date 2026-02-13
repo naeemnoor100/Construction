@@ -10,6 +10,7 @@ import { ExpenseTracker } from './components/ExpenseTracker';
 import { Reports } from './components/Reports';
 import { ProjectIncome } from './components/ProjectIncome';
 import { Settings } from './components/Settings';
+import { AIAssistant } from './components/AIAssistant';
 
 const MainApp: React.FC = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -30,6 +31,8 @@ const MainApp: React.FC = () => {
         return <ExpenseTracker />;
       case 'reports':
         return <Reports />;
+      case 'ai':
+        return <AIAssistant />;
       case 'settings':
         return <Settings />;
       default:

@@ -23,7 +23,9 @@ import {
   TrendingDown,
   ClipboardList,
   Search,
-  Tag
+  Tag,
+  ChevronRight,
+  FileSpreadsheet
 } from 'lucide-react';
 import { useApp } from '../AppContext';
 
@@ -31,7 +33,6 @@ const formatCurrency = (val: number) => `Rs. ${val.toLocaleString('en-IN')}`;
 
 export const Reports: React.FC = () => {
   const { projects, expenses, materials, incomes, vendors } = useApp();
-  const [materialProjectFilter, setMaterialProjectFilter] = useState<string>('All');
   const [reportActiveTab, setReportActiveTab] = useState<'overview' | 'project-drilldown'>('overview');
   const [selectedProjectId, setSelectedProjectId] = useState<string>(projects[0]?.id || '');
 
@@ -48,6 +49,16 @@ export const Reports: React.FC = () => {
     const totalCollected = projectIncomes.reduce((sum, i) => sum + i.amount, 0);
     const remainingBudget = project.budget - totalSpent;
 
+    // Category-wise summary
+    const categorySummaryMap: Record<string, number> = {};
+    projectExpenses.forEach(e => {
+      categorySummaryMap[e.category] = (categorySummaryMap[e.category] || 0) + e.amount;
+    });
+    
+    const categorySummary = Object.entries(categorySummaryMap)
+      .map(([name, amount]) => ({ name, amount, percentage: totalSpent > 0 ? (amount / totalSpent) * 100 : 0 }))
+      .sort((a, b) => b.amount - a.amount);
+
     const topExpenses = [...projectExpenses]
       .sort((a, b) => b.amount - a.amount)
       .slice(0, 50);
@@ -57,11 +68,12 @@ export const Reports: React.FC = () => {
       totalSpent,
       totalCollected,
       remainingBudget,
+      categorySummary,
       topExpenses
     };
   }, [selectedProjectId, projects, expenses, incomes]);
 
-  // Global Logic
+  // Global Logic for Overview
   const financialData = useMemo(() => projects.map(p => {
     const spent = expenses.filter(e => e.projectId === p.id).reduce((sum, e) => sum + e.amount, 0);
     const collected = incomes.filter(i => i.projectId === p.id).reduce((sum, i) => sum + i.amount, 0);
@@ -78,26 +90,6 @@ export const Reports: React.FC = () => {
     name: m.name,
     value: (m.totalPurchased - m.totalUsed) * m.costPerUnit
   })).filter(m => m.value > 0), [materials]);
-
-  const materialTrendData = useMemo(() => {
-    const materialExpenses = expenses.filter(e => {
-      const isMaterial = e.category === 'Material';
-      const matchesProject = materialProjectFilter === 'All' || e.projectId === materialProjectFilter;
-      return isMaterial && matchesProject;
-    });
-
-    const monthlyAggregation: Record<string, number> = {};
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const sortedExpenses = [...materialExpenses].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-    sortedExpenses.forEach(exp => {
-      const date = new Date(exp.date);
-      const monthYear = `${months[date.getMonth()]} ${date.getFullYear().toString().slice(-2)}`;
-      monthlyAggregation[monthYear] = (monthlyAggregation[monthYear] || 0) + exp.amount;
-    });
-
-    return Object.entries(monthlyAggregation).map(([month, amount]) => ({ month, amount })).slice(-6);
-  }, [expenses, materialProjectFilter]);
 
   const timelineData = useMemo(() => {
     const combined: Record<string, { month: string, Income: number, Expense: number }> = {};
@@ -136,13 +128,13 @@ export const Reports: React.FC = () => {
         <div className="flex bg-white dark:bg-slate-800 p-1 rounded-2xl border border-slate-200 dark:border-slate-700 w-full sm:w-auto">
            <button 
             onClick={() => setReportActiveTab('overview')}
-            className={`flex-1 sm:flex-none px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${reportActiveTab === 'overview' ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' : 'text-slate-400 hover:text-slate-600'}`}
+            className={`flex-1 sm:flex-none px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${reportActiveTab === 'overview' ? 'bg-[#003366] text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}
            >
              Overview
            </button>
            <button 
             onClick={() => setReportActiveTab('project-drilldown')}
-            className={`flex-1 sm:flex-none px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${reportActiveTab === 'project-drilldown' ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' : 'text-slate-400 hover:text-slate-600'}`}
+            className={`flex-1 sm:flex-none px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${reportActiveTab === 'project-drilldown' ? 'bg-[#003366] text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}
            >
              Project Drill-Down
            </button>
@@ -212,7 +204,7 @@ export const Reports: React.FC = () => {
           <div className="bg-white dark:bg-slate-800 p-8 rounded-[2.5rem] border border-slate-200 dark:border-slate-700 shadow-sm">
             <h3 className="font-black text-slate-900 dark:text-white flex items-center gap-2 text-sm uppercase tracking-widest mb-8">
               <TrendingUp size={20} className="text-blue-600" />
-              Combined Transaction Timeline
+              Portfolio Transaction History
             </h3>
             <div className="h-96">
               <ResponsiveContainer width="100%" height="100%">
@@ -243,30 +235,34 @@ export const Reports: React.FC = () => {
         <div className="space-y-8 animate-in slide-in-from-right-4 duration-500">
           <div className="bg-white dark:bg-slate-800 p-6 rounded-[2.5rem] border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col md:flex-row justify-between items-center gap-6">
              <div className="flex items-center gap-4 w-full md:w-auto">
-               <div className="p-4 bg-blue-600 text-white rounded-2xl shadow-xl shadow-blue-100 dark:shadow-none">
+               <div className="p-4 bg-[#003366] text-white rounded-2xl shadow-xl shadow-blue-100 dark:shadow-none">
                  <Briefcase size={24} />
                </div>
                <div className="flex-1">
                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Target Project Site</p>
-                 <select 
-                   value={selectedProjectId}
-                   onChange={(e) => setSelectedProjectId(e.target.value)}
-                   className="w-full md:w-72 px-0 bg-transparent text-lg font-black text-slate-900 dark:text-white outline-none appearance-none cursor-pointer"
-                 >
-                   {projects.map(p => <option key={p.id} value={p.id} className="text-slate-900">{p.name}</option>)}
-                 </select>
+                 <div className="relative">
+                    <select 
+                      value={selectedProjectId}
+                      onChange={(e) => setSelectedProjectId(e.target.value)}
+                      className="w-full md:w-72 px-0 bg-transparent text-lg font-black text-slate-900 dark:text-white outline-none appearance-none cursor-pointer pr-10"
+                    >
+                      {projects.map(p => <option key={p.id} value={p.id} className="text-slate-900">{p.name}</option>)}
+                    </select>
+                    <ChevronDown className="absolute right-0 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={18} />
+                 </div>
                </div>
              </div>
 
              <div className="flex gap-2 w-full md:w-auto">
                 <button className="flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-200 transition-all">
-                   <Download size={14} /> PDF Summary
+                   <Download size={14} /> Export Report
                 </button>
              </div>
           </div>
 
           {selectedProjectReport ? (
             <div className="space-y-8">
+              {/* Financial Pulse Cards */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="bg-white dark:bg-slate-800 p-8 rounded-[2rem] border border-slate-200 dark:border-slate-700 shadow-sm flex items-center gap-6">
                   <div className="p-4 bg-red-50 dark:bg-red-900/20 text-red-600 rounded-2xl">
@@ -299,50 +295,80 @@ export const Reports: React.FC = () => {
                 </div>
               </div>
 
-              <div className="bg-white dark:bg-slate-800 rounded-[3rem] border border-slate-200 dark:border-slate-700 overflow-hidden shadow-sm">
-                <div className="p-8 border-b border-slate-50 dark:border-slate-700 flex justify-between items-center">
-                  <div className="flex items-center gap-3">
-                    <div className="p-3 bg-blue-50 dark:bg-blue-900/20 text-blue-600 rounded-xl">
-                      <ClipboardList size={20} />
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                {/* Category Spending Table */}
+                <div className="lg:col-span-1 space-y-6">
+                  <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] border border-slate-200 dark:border-slate-700 overflow-hidden shadow-sm h-full">
+                    <div className="p-8 border-b border-slate-50 dark:border-slate-700 bg-slate-50/30 dark:bg-slate-900/20">
+                      <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest flex items-center gap-2">
+                        <FileSpreadsheet size={18} className="text-blue-600" />
+                        Spending by Category
+                      </h3>
                     </div>
-                    <h4 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-tighter">Top 50 Expenditure Items</h4>
+                    <div className="p-0">
+                      <table className="w-full text-left">
+                        <thead className="bg-slate-50/50 dark:bg-slate-900/50 text-[10px] font-bold text-slate-400 uppercase border-b border-slate-100 dark:border-slate-700">
+                          <tr>
+                            <th className="px-8 py-4">Category</th>
+                            <th className="px-8 py-4 text-right">Amount</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-50 dark:divide-slate-700">
+                          {selectedProjectReport.categorySummary.map((cat, idx) => (
+                            <tr key={idx} className="hover:bg-slate-50/50">
+                              <td className="px-8 py-4">
+                                <p className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase">{cat.name}</p>
+                                <p className="text-[9px] text-slate-400 font-bold">{cat.percentage.toFixed(1)}% of total</p>
+                              </td>
+                              <td className="px-8 py-4 text-right text-xs font-black text-slate-900 dark:text-white">
+                                {formatCurrency(cat.amount)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
-                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 dark:bg-slate-900 px-3 py-1 rounded-full">Sorted by Amount</span>
                 </div>
-                <div className="overflow-x-auto no-scrollbar">
-                   <table className="w-full text-left min-w-[800px]">
-                     <thead className="bg-slate-50/50 dark:bg-slate-900/50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 dark:border-slate-700">
-                       <tr>
-                         <th className="px-8 py-5">Value Date</th>
-                         <th className="px-8 py-5">Ledger Details</th>
-                         <th className="px-8 py-5">Trade Category</th>
-                         <th className="px-8 py-5">Recipient / Vendor</th>
-                         <th className="px-8 py-5 text-right">Amount Incurred</th>
-                       </tr>
-                     </thead>
-                     <tbody className="divide-y divide-slate-50 dark:divide-slate-700">
+
+                {/* Top 50 Expenses List */}
+                <div className="lg:col-span-2 bg-white dark:bg-slate-800 rounded-[2.5rem] border border-slate-200 dark:border-slate-700 overflow-hidden shadow-sm">
+                  <div className="p-8 border-b border-slate-50 dark:border-slate-700 flex justify-between items-center bg-slate-50/30 dark:bg-slate-900/20">
+                    <div className="flex items-center gap-3">
+                      <div className="p-3 bg-blue-50 dark:bg-blue-900/20 text-blue-600 rounded-xl">
+                        <ClipboardList size={20} />
+                      </div>
+                      <h4 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-tighter">Top 50 Expenditure Items</h4>
+                    </div>
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 dark:bg-slate-900 px-3 py-1 rounded-full border border-slate-200 dark:border-slate-700">Audit Trail</span>
+                  </div>
+                  <div className="overflow-x-auto no-scrollbar">
+                    <table className="w-full text-left min-w-[600px]">
+                      <thead className="bg-white dark:bg-slate-800 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 dark:border-slate-700">
+                        <tr>
+                          <th className="px-8 py-5">Date</th>
+                          <th className="px-8 py-5">Details</th>
+                          <th className="px-8 py-5">Vendor</th>
+                          <th className="px-8 py-5 text-right">Amount</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-50 dark:divide-slate-700">
                         {selectedProjectReport.topExpenses.length > 0 ? selectedProjectReport.topExpenses.map((exp, idx) => (
-                          <tr key={exp.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/50 transition-colors group">
-                            <td className="px-8 py-5 text-xs font-bold text-slate-500 dark:text-slate-400">{new Date(exp.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
+                          <tr key={exp.id} className="hover:bg-slate-50/50 transition-colors group">
+                            <td className="px-8 py-5 text-xs font-bold text-slate-500">{new Date(exp.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</td>
                             <td className="px-8 py-5">
                                <div className="flex items-center gap-3">
-                                  <div className="w-8 h-8 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg flex items-center justify-center text-[10px] font-black text-slate-400">#{idx + 1}</div>
-                                  <p className="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-tighter">{exp.notes}</p>
+                                  <div className="w-8 h-8 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg flex items-center justify-center text-[10px] font-black text-slate-400">#{idx + 1}</div>
+                                  <div>
+                                    <p className="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-tighter">{exp.notes}</p>
+                                    <p className="text-[9px] font-black uppercase text-blue-500">{exp.category}</p>
+                                  </div>
                                </div>
                             </td>
                             <td className="px-8 py-5">
-                               <div className="flex items-center gap-2">
-                                  <Tag size={12} className="text-blue-500" />
-                                  <span className="text-[10px] font-black uppercase text-slate-600 dark:text-slate-400">{exp.category}</span>
-                               </div>
-                            </td>
-                            <td className="px-8 py-5">
-                               <div className="flex items-center gap-2">
-                                  <Users size={14} className="text-emerald-500" />
-                                  <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-tight truncate max-w-[150px]">
-                                    {vendors.find(v => v.id === exp.vendorId)?.name || 'Direct Procurement'}
-                                  </span>
-                               </div>
+                               <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-tight truncate max-w-[120px] inline-block">
+                                 {vendors.find(v => v.id === exp.vendorId)?.name || 'Direct'}
+                               </span>
                             </td>
                             <td className="px-8 py-5 text-right">
                                <span className="text-sm font-black text-red-600">{formatCurrency(exp.amount)}</span>
@@ -350,20 +376,21 @@ export const Reports: React.FC = () => {
                           </tr>
                         )) : (
                           <tr>
-                            <td colSpan={5} className="px-8 py-20 text-center">
-                               <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest italic">No expenses recorded for this site</p>
+                            <td colSpan={4} className="px-8 py-20 text-center text-slate-300">
+                               <p className="text-[10px] font-bold uppercase">No records available</p>
                             </td>
                           </tr>
                         )}
-                     </tbody>
-                   </table>
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </div>
             </div>
           ) : (
             <div className="py-20 flex flex-col items-center justify-center text-slate-300 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-[3rem]">
               <Target size={48} className="opacity-20 mb-4" />
-              <p className="text-[10px] font-bold uppercase tracking-widest">Select a project to generate report</p>
+              <p className="text-[10px] font-bold uppercase tracking-widest">Select a valid project to see analysis</p>
             </div>
           )}
         </div>

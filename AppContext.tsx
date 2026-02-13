@@ -288,7 +288,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const spent = pExpenses.reduce((sum, e) => sum + e.amount, 0);
     const collected = pIncomes.reduce((sum, i) => sum + i.amount, 0);
     try {
-      const ai = new GoogleGenAI({ apiKey: (process as any).env.API_KEY });
+      /* Fix: Using process.env.API_KEY directly as required by guidelines */
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: `Analyze: ${project.name}, Budget: ${project.budget}, Spent: ${spent}, Collected: ${collected}. Advice in Urdu and English.`,
