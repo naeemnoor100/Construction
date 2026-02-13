@@ -2,7 +2,7 @@
 import React, { useMemo, useState } from 'react';
 import { 
   BarChart as RechartsBarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
-  AreaChart, Area, Legend, PieChart as RechartsPieChart, Pie, Cell, LineChart, Line
+  AreaChart, Area, Legend, PieChart as RechartsPieChart, Pie, Cell, LineChart, Line, LabelList
 } from 'recharts';
 import { 
   Download, 
@@ -340,7 +340,7 @@ export const Reports: React.FC = () => {
                   </h5>
                   <div className="h-48">
                     <ResponsiveContainer width="100%" height="100%">
-                      <RechartsBarChart layout="vertical" data={item.categoryBreakdown} margin={{ left: -10, right: 20 }}>
+                      <RechartsBarChart layout="vertical" data={item.categoryBreakdown} margin={{ left: -10, right: 60 }}>
                         <XAxis type="number" hide />
                         <YAxis dataKey="category" type="category" axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#64748b'}} width={70} />
                         <Tooltip 
@@ -348,7 +348,14 @@ export const Reports: React.FC = () => {
                           formatter={(val: number) => formatCurrency(val)}
                           contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', fontSize: '10px'}}
                         />
-                        <Bar dataKey="amount" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={20} />
+                        <Bar dataKey="amount" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={20}>
+                          <LabelList 
+                            dataKey="amount" 
+                            position="right" 
+                            formatter={(val: number) => formatCurrency(val)}
+                            style={{ fontSize: '9px', fontWeight: 'bold', fill: '#64748b' }}
+                          />
+                        </Bar>
                       </RechartsBarChart>
                     </ResponsiveContainer>
                   </div>

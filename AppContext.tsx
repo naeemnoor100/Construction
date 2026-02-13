@@ -206,20 +206,127 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }), "Delete Material Asset");
 
   const addExpense = (e: Expense) => updateState(prev => {
-    const newVendors = e.vendorId 
+    // 1. Update Vendor Balance
+    let newVendors = e.vendorId 
       ? prev.vendors.map(v => v.id === e.vendorId ? { ...v, balance: v.balance + e.amount } : v)
       : prev.vendors;
-    return { ...prev, expenses: [...prev.expenses, e], vendors: newVendors };
+    
+    // 2. Update Material Stock
+    let newMaterials = prev.materials;
+    if (e.materialId && e.materialQuantity) {
+      newMaterials = prev.materials.map(m => {
+        if (m.id === e.materialId) {
+          const isPurchase = !!e.vendorId;
+          const newTotalPurchased = isPurchase ? m.totalPurchased + (e.materialQuantity || 0) : m.totalPurchased;
+          const newTotalUsed = !isPurchase ? m.totalUsed + (e.materialQuantity || 0) : m.totalUsed;
+          
+          return {
+            ...m,
+            totalPurchased: newTotalPurchased,
+            totalUsed: newTotalUsed,
+            history: [...(m.history || []), {
+              id: 'sh-exp-' + e.id,
+              date: e.date,
+              type: isPurchase ? 'Purchase' : 'Usage',
+              quantity: e.materialQuantity || 0,
+              projectId: e.projectId,
+              vendorId: e.vendorId,
+              unitPrice: e.amount / (e.materialQuantity || 1),
+              note: isPurchase ? `Stock Inward via Finance: ${e.notes}` : `Stock Outward via Finance: ${e.notes}`
+            }]
+          };
+        }
+        return m;
+      });
+    }
+    return { ...prev, expenses: [...prev.expenses, e], vendors: newVendors, materials: newMaterials };
   }, "Record Expense");
-  const updateExpense = (e: Expense) => updateState(prev => ({
-    ...prev, expenses: prev.expenses.map(exp => exp.id === e.id ? e : exp)
-  }), "Update Expense");
+
+  const updateExpense = (e: Expense) => updateState(prev => {
+    const oldExpense = prev.expenses.find(exp => exp.id === e.id);
+    if (!oldExpense) return prev;
+
+    // REVERT OLD
+    let tempVendors = prev.vendors;
+    if (oldExpense.vendorId) {
+      tempVendors = tempVendors.map(v => v.id === oldExpense.vendorId ? { ...v, balance: Math.max(0, v.balance - oldExpense.amount) } : v);
+    }
+    let tempMaterials = prev.materials;
+    if (oldExpense.materialId && oldExpense.materialQuantity) {
+      tempMaterials = tempMaterials.map(m => {
+        if (m.id === oldExpense.materialId) {
+          const wasPurchase = !!oldExpense.vendorId;
+          return {
+            ...m,
+            totalPurchased: wasPurchase ? Math.max(0, m.totalPurchased - (oldExpense.materialQuantity || 0)) : m.totalPurchased,
+            totalUsed: !wasPurchase ? Math.max(0, m.totalUsed - (oldExpense.materialQuantity || 0)) : m.totalUsed,
+            history: (m.history || []).filter(h => h.id !== 'sh-exp-' + oldExpense.id)
+          };
+        }
+        return m;
+      });
+    }
+
+    // APPLY NEW
+    let newVendors = e.vendorId ? tempVendors.map(v => v.id === e.vendorId ? { ...v, balance: v.balance + e.amount } : v) : tempVendors;
+    let newMaterials = tempMaterials;
+    if (e.materialId && e.materialQuantity) {
+      newMaterials = tempMaterials.map(m => {
+        if (m.id === e.materialId) {
+          const isPurchase = !!e.vendorId;
+          return {
+            ...m,
+            totalPurchased: isPurchase ? m.totalPurchased + (e.materialQuantity || 0) : m.totalPurchased,
+            totalUsed: !isPurchase ? m.totalUsed + (e.materialQuantity || 0) : m.totalUsed,
+            history: [...(m.history || []), {
+              id: 'sh-exp-' + e.id,
+              date: e.date,
+              type: isPurchase ? 'Purchase' : 'Usage',
+              quantity: e.materialQuantity || 0,
+              projectId: e.projectId,
+              vendorId: e.vendorId,
+              unitPrice: e.amount / (e.materialQuantity || 1),
+              note: isPurchase ? `Updated Inward via Finance: ${e.notes}` : `Updated Outward via Finance: ${e.notes}`
+            }]
+          };
+        }
+        return m;
+      });
+    }
+
+    return {
+      ...prev,
+      expenses: prev.expenses.map(exp => exp.id === e.id ? e : exp),
+      vendors: newVendors,
+      materials: newMaterials
+    };
+  }, "Update Expense");
+
   const deleteExpense = (id: string) => updateState(prev => {
-    const expenseToDelete = prev.expenses.find(e => e.id === id);
-    const newVendors = (expenseToDelete && expenseToDelete.vendorId)
-      ? prev.vendors.map(v => v.id === expenseToDelete.vendorId ? { ...v, balance: Math.max(0, v.balance - expenseToDelete.amount) } : v)
+    const exp = prev.expenses.find(e => e.id === id);
+    if (!exp) return prev;
+
+    const newVendors = exp.vendorId
+      ? prev.vendors.map(v => v.id === exp.vendorId ? { ...v, balance: Math.max(0, v.balance - exp.amount) } : v)
       : prev.vendors;
-    return { ...prev, expenses: prev.expenses.filter(e => e.id !== id), vendors: newVendors };
+
+    let newMaterials = prev.materials;
+    if (exp.materialId && exp.materialQuantity) {
+      newMaterials = prev.materials.map(m => {
+        if (m.id === exp.materialId) {
+          const wasPurchase = !!exp.vendorId;
+          return {
+            ...m,
+            totalPurchased: wasPurchase ? Math.max(0, m.totalPurchased - (exp.materialQuantity || 0)) : m.totalPurchased,
+            totalUsed: !wasPurchase ? Math.max(0, m.totalUsed - (exp.materialQuantity || 0)) : m.totalUsed,
+            history: (m.history || []).filter(h => h.id !== 'sh-exp-' + id)
+          };
+        }
+        return m;
+      });
+    }
+
+    return { ...prev, expenses: prev.expenses.filter(e => e.id !== id), vendors: newVendors, materials: newMaterials };
   }, "Delete Expense Record");
 
   const addPayment = (pay: Payment) => updateState(prev => {
@@ -305,6 +412,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     undo, redo, canUndo: past.length > 0, canRedo: future.length > 0,
     lastActionName: past.length > 0 ? past[0].actionName : '',
     isSyncing, syncError, lastSynced
+    // Fix typo iSyncing to isSyncing
   }), [state, past.length, future.length, lastSynced, isSyncing, syncError, loadExternalState, forceSync, undo, redo, setTheme]);
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

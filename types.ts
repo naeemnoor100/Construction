@@ -67,6 +67,7 @@ export interface Expense {
   projectId: string;
   vendorId?: string;
   materialId?: string;
+  materialQuantity?: number;
   amount: number;
   paymentMethod: PaymentMethod;
   notes: string;
@@ -82,6 +83,7 @@ export interface Payment {
   amount: number;
   method: PaymentMethod;
   reference?: string;
+  materialBatchId?: string;
 }
 
 export interface Income {

@@ -53,6 +53,9 @@ export const Inventory: React.FC = () => {
   
   const [editingHistoryEntry, setEditingHistoryEntry] = useState<{material: Material, entry: StockHistoryEntry} | null>(null);
   const [showEditHistoryModal, setShowEditHistoryModal] = useState(false);
+  const [historyEditFormData, setHistoryEditFormData] = useState({
+    quantity: '', unitPrice: '', projectId: '', vendorId: '', date: '', note: ''
+  });
 
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
@@ -107,11 +110,16 @@ export const Inventory: React.FC = () => {
       const vendorName = vendors.find(v => v.id === entry.vendorId)?.name || '';
       const search = historySearch.toLowerCase();
       
+      const entryDate = new Date(entry.date).toLocaleDateString();
+      const qtyStr = entry.quantity.toString();
+      
       return (
         entry.note?.toLowerCase().includes(search) ||
         entry.type.toLowerCase().includes(search) ||
         projectName.toLowerCase().includes(search) ||
-        vendorName.toLowerCase().includes(search)
+        vendorName.toLowerCase().includes(search) ||
+        entryDate.includes(search) ||
+        qtyStr.includes(search)
       );
     });
 
@@ -133,6 +141,37 @@ export const Inventory: React.FC = () => {
       return 0;
     });
   }, [historyMaterial, historySearch, historySort, projects, vendors]);
+
+  // Enhanced logic to categorize and label materials for the Usage dropdown
+  // Itemizes by Material + Vendor for the specific project chosen
+  const organizedUsageMaterials = useMemo(() => {
+    if (!usageData.projectId) return { siteSpecific: [], others: [] };
+
+    const siteSpecific: { mat: Material; vendorName: string; key: string }[] = [];
+    const others: Material[] = [];
+
+    materials.forEach(m => {
+      const projectPurchases = m.history?.filter(h => h.type === 'Purchase' && h.projectId === usageData.projectId) || [];
+      
+      if (projectPurchases.length > 0) {
+        // Group by vendor for the line-wise site relevance
+        const uniqueVendorIds = Array.from(new Set(projectPurchases.map(p => p.vendorId)));
+        uniqueVendorIds.forEach(vid => {
+          const vendor = vendors.find(v => v.id === vid);
+          siteSpecific.push({ 
+            mat: m, 
+            vendorName: vendor?.name || 'Manual/Direct Entry',
+            key: `${m.id}-${vid || 'manual'}`
+          });
+        });
+      } else {
+        // If material exists in registry but never purchased for this site
+        others.push(m);
+      }
+    });
+
+    return { siteSpecific, others };
+  }, [materials, vendors, usageData.projectId]);
 
   const handleOpenUsageModal = (matId?: string) => {
     setUsageData({
@@ -282,6 +321,58 @@ export const Inventory: React.FC = () => {
     setHistoryMaterial(updatedMat);
   };
 
+  const handleEditHistorySubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingHistoryEntry) return;
+
+    const { material, entry: oldEntry } = editingHistoryEntry;
+    const newQty = parseFloat(historyEditFormData.quantity) || 0;
+    const newPrice = parseFloat(historyEditFormData.unitPrice) || 0;
+    
+    if (oldEntry.type === 'Purchase') {
+      if (oldEntry.vendorId) {
+        const oldVendor = vendors.find(v => v.id === oldEntry.vendorId);
+        if (oldVendor) {
+          const oldCost = oldEntry.quantity * (oldEntry.unitPrice || material.costPerUnit);
+          updateVendor({ ...oldVendor, balance: Math.max(0, oldVendor.balance - oldCost) });
+        }
+      }
+      
+      const newVendorId = historyEditFormData.vendorId;
+      if (newVendorId) {
+        const newVendor = vendors.find(v => v.id === newVendorId);
+        if (newVendor) {
+          const newCost = newQty * newPrice;
+          updateVendor({ ...newVendor, balance: newVendor.balance + newCost });
+        }
+      }
+    }
+
+    const newHistory = material.history?.map(h => {
+      if (h.id === oldEntry.id) {
+        return {
+          ...h,
+          quantity: newQty,
+          unitPrice: newPrice,
+          projectId: historyEditFormData.projectId || undefined,
+          vendorId: historyEditFormData.vendorId || undefined,
+          date: historyEditFormData.date,
+          note: historyEditFormData.note
+        };
+      }
+      return h;
+    }) || [];
+
+    const totalPurchased = newHistory.filter(h => h.type === 'Purchase').reduce((sum, h) => sum + h.quantity, 0);
+    const totalUsed = newHistory.filter(h => h.type === 'Usage').reduce((sum, h) => sum + h.quantity, 0);
+
+    const updatedMat = { ...material, totalPurchased, totalUsed, history: newHistory };
+    updateMaterial(updatedMat);
+    setHistoryMaterial(updatedMat);
+    setShowEditHistoryModal(false);
+    setEditingHistoryEntry(null);
+  };
+
   const handleEditMaterialSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingMaterial) return;
@@ -354,7 +445,9 @@ export const Inventory: React.FC = () => {
                         </div>
                       </div>
                     </td>
-                    <td className="px-8 py-5 text-xs font-black text-slate-600 dark:text-slate-400">{formatCurrency(mat.costPerUnit)}</td>
+                    <td className="px-8 py-5 text-xs font-black text-slate-600 dark:text-slate-400">
+                      {formatCurrency(remaining * mat.costPerUnit)}
+                    </td>
                     <td className="px-8 py-5">
                        <span className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 ${remaining < 100 ? 'bg-red-50 text-red-600 border-red-100 dark:bg-red-900/10 dark:border-red-900/20' : 'bg-emerald-50 text-emerald-600 border-emerald-100 dark:bg-emerald-900/20 dark:border-emerald-800'}`}>
                          {remaining.toLocaleString()} {mat.unit}s Available
@@ -371,14 +464,6 @@ export const Inventory: React.FC = () => {
                   </tr>
                 );
               })}
-              {filteredMaterials.length === 0 && (
-                <tr>
-                  <td colSpan={4} className="px-8 py-20 text-center">
-                    <AlertCircle size={48} className="mx-auto text-slate-200 mb-4 opacity-30" />
-                    <p className="text-sm font-black text-slate-400 uppercase tracking-widest">No assets found matching your criteria</p>
-                  </td>
-                </tr>
-              )}
             </tbody>
           </table>
         </div>
@@ -387,7 +472,7 @@ export const Inventory: React.FC = () => {
       {/* History Modal */}
       {historyMaterial && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
-          <div className="bg-white dark:bg-slate-800 rounded-[3rem] w-full max-w-5xl h-[90vh] shadow-2xl overflow-hidden flex flex-col mobile-sheet animate-in slide-in-from-bottom-8 duration-300">
+          <div className="bg-white dark:bg-slate-800 rounded-[3rem] w-full max-w-6xl h-[90vh] shadow-2xl overflow-hidden flex flex-col mobile-sheet animate-in slide-in-from-bottom-8 duration-300">
             <div className="p-8 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-white dark:bg-slate-800 shrink-0">
                <div className="flex gap-4 items-center">
                  <div className="w-14 h-14 bg-slate-900 dark:bg-slate-700 text-white rounded-[1.5rem] flex items-center justify-center font-black text-2xl shadow-xl">{historyMaterial.name.charAt(0)}</div>
@@ -404,7 +489,7 @@ export const Inventory: React.FC = () => {
                   <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                   <input 
                     type="text" 
-                    placeholder="Filter logs by notes, site, or supplier..." 
+                    placeholder="Search logs by Date, Qty, Site, Vendor or Notes..." 
                     className="w-full pl-11 pr-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold dark:text-white outline-none focus:ring-2 focus:ring-blue-500 shadow-sm"
                     value={historySearch}
                     onChange={(e) => setHistorySearch(e.target.value)}
@@ -433,60 +518,99 @@ export const Inventory: React.FC = () => {
                     <table className="w-full text-left min-w-[850px]">
                       <thead className="bg-slate-50 dark:bg-slate-900 text-[10px] font-black text-slate-400 uppercase border-b border-slate-100 dark:border-slate-700">
                         <tr>
-                          <th className="px-8 py-5">Date</th>
+                          <th className="px-8 py-5">Value Date</th>
                           <th className="px-8 py-5">Activity Details</th>
                           <th className="px-8 py-5">Quantity Change</th>
-                          <th className="px-8 py-5">Unit Price</th>
-                          <th className="px-8 py-5">Site / Source</th>
+                          <th className="px-8 py-5 text-right">Unit Price</th>
+                          <th className="px-8 py-5 text-right">Total Value</th>
+                          <th className="px-8 py-5">Site Allocation / Supplier</th>
                           <th className="px-8 py-5 text-right">Actions</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
                         {filteredHistory.length > 0 ? (
-                          filteredHistory.map((entry) => (
-                            <tr key={entry.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/50 transition-colors group">
-                              <td className="px-8 py-5 text-xs font-bold text-slate-500 dark:text-slate-400">{new Date(entry.date).toLocaleDateString()}</td>
-                              <td className="px-8 py-5">
-                                <div className="flex items-center gap-2">
-                                  {entry.type === 'Purchase' ? (
-                                    <div className="p-1.5 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg text-emerald-600">
-                                      <ShoppingCart size={12} />
-                                    </div>
-                                  ) : (
-                                    <div className="p-1.5 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-blue-600">
-                                      <TrendingDown size={12} />
-                                    </div>
-                                  )}
-                                  <span className={`text-[10px] font-black uppercase tracking-widest ${entry.type === 'Purchase' ? 'text-emerald-600' : 'text-blue-600'}`}>{entry.type}</span>
-                                </div>
-                                <p className="text-[11px] text-slate-700 dark:text-slate-300 font-semibold mt-1">{entry.note}</p>
-                              </td>
-                              <td className="px-8 py-5">
-                                <span className={`text-sm font-black ${entry.type === 'Purchase' ? 'text-emerald-600' : 'text-blue-600'}`}>
-                                  {entry.type === 'Purchase' ? '+' : '-'}{entry.quantity.toLocaleString()} {historyMaterial.unit}
-                                </span>
-                              </td>
-                              <td className="px-8 py-5">
-                                <span className="text-xs font-bold text-slate-600 dark:text-slate-400">
-                                  {formatCurrency(entry.unitPrice || historyMaterial.costPerUnit)}
-                                </span>
-                              </td>
-                              <td className="px-8 py-5">
-                                <div className="flex items-center gap-2">
-                                  {entry.projectId ? <Briefcase size={12} className="text-blue-500" /> : <Users size={12} className="text-emerald-500" />}
-                                  <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-tight">
-                                    {entry.projectId ? projects.find(p => p.id === entry.projectId)?.name : vendors.find(v => v.id === entry.vendorId)?.name || 'Manual Log'}
+                          filteredHistory.map((entry) => {
+                            const project = projects.find(p => p.id === entry.projectId);
+                            const vendor = vendors.find(v => v.id === entry.vendorId);
+                            
+                            return (
+                              <tr key={entry.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/50 transition-colors group">
+                                <td className="px-8 py-5 text-xs font-bold text-slate-500 dark:text-slate-400">{new Date(entry.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
+                                <td className="px-8 py-5">
+                                  <div className="flex items-center gap-2">
+                                    {entry.type === 'Purchase' ? (
+                                      <div className="p-1.5 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg text-emerald-600">
+                                        <ShoppingCart size={12} />
+                                      </div>
+                                    ) : (
+                                      <div className="p-1.5 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-blue-600">
+                                        <TrendingDown size={12} />
+                                      </div>
+                                    )}
+                                    <span className={`text-[10px] font-black uppercase tracking-widest ${entry.type === 'Purchase' ? 'text-emerald-600' : 'text-blue-600'}`}>{entry.type}</span>
+                                  </div>
+                                  <p className="text-[11px] text-slate-700 dark:text-slate-300 font-semibold mt-1">{entry.note}</p>
+                                </td>
+                                <td className="px-8 py-5">
+                                  <span className={`text-sm font-black ${entry.type === 'Purchase' ? 'text-emerald-600' : 'text-blue-600'}`}>
+                                    {entry.type === 'Purchase' ? '+' : '-'}{entry.quantity.toLocaleString()} {historyMaterial.unit}
                                   </span>
-                                </div>
-                              </td>
-                              <td className="px-8 py-5 text-right">
-                                <button onClick={() => handleDeleteHistoryEntry(historyMaterial, entry.id)} className="p-2.5 text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-all"><Trash2 size={16} /></button>
-                              </td>
-                            </tr>
-                          ))
+                                </td>
+                                <td className="px-8 py-5 text-right">
+                                  <span className="text-xs font-bold text-slate-600 dark:text-slate-400">
+                                    {formatCurrency(entry.unitPrice || historyMaterial.costPerUnit)}
+                                  </span>
+                                </td>
+                                <td className="px-8 py-5 text-right">
+                                  <span className={`text-xs font-black ${entry.type === 'Purchase' ? 'text-emerald-600' : 'text-blue-600'}`}>
+                                    {formatCurrency(entry.quantity * (entry.unitPrice || historyMaterial.costPerUnit))}
+                                  </span>
+                                </td>
+                                <td className="px-8 py-5">
+                                  <div className="flex flex-col gap-1">
+                                    {project && (
+                                      <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-tight">
+                                        <Briefcase size={12} className="text-blue-500" />
+                                        {project.name}
+                                      </div>
+                                    )}
+                                    {vendor && (
+                                      <div className="flex items-center gap-1.5 text-[11px] font-black text-slate-800 dark:text-slate-200 uppercase tracking-tighter">
+                                        <Users size={12} className="text-emerald-500" />
+                                        {vendor.name}
+                                      </div>
+                                    )}
+                                    {!project && !vendor && <span className="text-[10px] text-slate-400 italic">Manual Log Entry</span>}
+                                  </div>
+                                </td>
+                                <td className="px-8 py-5 text-right">
+                                  <div className="flex justify-end gap-1">
+                                    <button 
+                                      onClick={() => {
+                                        setEditingHistoryEntry({ material: historyMaterial, entry });
+                                        setHistoryEditFormData({
+                                          quantity: entry.quantity.toString(),
+                                          unitPrice: (entry.unitPrice || historyMaterial.costPerUnit).toString(),
+                                          projectId: entry.projectId || '',
+                                          vendorId: entry.vendorId || '',
+                                          date: entry.date,
+                                          note: entry.note || ''
+                                        });
+                                        setShowEditHistoryModal(true);
+                                      }}
+                                      className="p-2 text-slate-300 hover:text-blue-600 transition-colors"
+                                    >
+                                      <Pencil size={16} />
+                                    </button>
+                                    <button onClick={() => handleDeleteHistoryEntry(historyMaterial, entry.id)} className="p-2 text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={16} /></button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })
                         ) : (
                           <tr>
-                            <td colSpan={6} className="px-8 py-20 text-center">
+                            <td colSpan={7} className="px-8 py-20 text-center">
                               <History size={32} className="mx-auto text-slate-200 mb-2 opacity-30" />
                               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">No logs match your filter</p>
                             </td>
@@ -497,6 +621,81 @@ export const Inventory: React.FC = () => {
                  </div>
                </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit History Entry Modal */}
+      {showEditHistoryModal && editingHistoryEntry && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-md">
+          <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-w-lg shadow-2xl overflow-hidden mobile-sheet animate-in zoom-in-95 duration-200">
+             <div className="p-8 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-50/50 dark:bg-slate-900 shrink-0">
+                <div className="flex gap-4 items-center">
+                  <div className="p-4 bg-slate-900 dark:bg-slate-700 text-white rounded-2xl">
+                    <Pencil size={24} />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tighter leading-none">Modify Stock Log</h2>
+                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Adjusting: {editingHistoryEntry.entry.type} Entry</p>
+                  </div>
+                </div>
+                <button onClick={() => setShowEditHistoryModal(false)} className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"><X size={32} /></button>
+             </div>
+             <form onSubmit={handleEditHistorySubmit} className="p-8 space-y-5 pb-safe overflow-y-auto no-scrollbar max-h-[75vh]">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Log Date</label>
+                    <input type="date" required className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={historyEditFormData.date} onChange={e => setHistoryEditFormData(p => ({ ...p, date: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Quantity ({editingHistoryEntry.material.unit})</label>
+                    <input type="number" step="0.01" required className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={historyEditFormData.quantity} onChange={e => setHistoryEditFormData(p => ({ ...p, quantity: e.target.value }))} />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Rate Per Unit (Rs.)</label>
+                  <input type="number" step="0.01" required className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={historyEditFormData.unitPrice} onChange={e => setHistoryEditFormData(p => ({ ...p, unitPrice: e.target.value }))} />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Site Allocation</label>
+                    <select className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none appearance-none" value={historyEditFormData.projectId} onChange={e => setHistoryEditFormData(p => ({ ...p, projectId: e.target.value }))}>
+                       <option value="">Direct / Global Store</option>
+                       {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                  </div>
+                  {editingHistoryEntry.entry.type === 'Purchase' && (
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Supplier / Source</label>
+                      <select className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none appearance-none" value={historyEditFormData.vendorId} onChange={e => setHistoryEditFormData(p => ({ ...p, vendorId: e.target.value }))}>
+                         <option value="">Manual Entry</option>
+                         {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                      </select>
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Log Entry Notes</label>
+                  <textarea rows={2} className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={historyEditFormData.note} onChange={e => setHistoryEditFormData(p => ({ ...p, note: e.target.value }))} />
+                </div>
+
+                <div className="bg-slate-900 dark:bg-slate-950 p-6 rounded-[2rem] text-white flex justify-between items-center shadow-2xl">
+                   <div>
+                      <p className="text-[10px] font-black text-white/50 uppercase tracking-widest mb-1">New Calculated Value</p>
+                      <p className="text-xl font-black text-emerald-500">
+                        {formatCurrency((parseFloat(historyEditFormData.quantity) || 0) * (parseFloat(historyEditFormData.unitPrice) || 0))}
+                      </p>
+                   </div>
+                   <CheckCircle2 size={24} className="text-emerald-500 opacity-50" />
+                </div>
+
+                <button type="submit" className="w-full bg-slate-900 dark:bg-white dark:text-slate-900 text-white py-5 rounded-[2rem] font-black shadow-2xl active:scale-95 transition-all text-sm uppercase tracking-widest flex items-center justify-center gap-3">
+                  <Save size={20} /> Update Activity Log
+                </button>
+             </form>
           </div>
         </div>
       )}
@@ -600,38 +799,75 @@ export const Inventory: React.FC = () => {
              </div>
              <form onSubmit={handleRecordUsage} className="p-8 space-y-5 pb-safe overflow-y-auto no-scrollbar max-h-[70vh]">
                 <div className="space-y-1.5">
-                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Material Asset</label>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">1. Project Assignment</label>
+                  <select 
+                    className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white appearance-none outline-none focus:ring-2 focus:ring-blue-500" 
+                    value={usageData.projectId} 
+                    onChange={e => setUsageData(p => ({ ...p, projectId: e.target.value, materialId: '' }))} 
+                    required
+                  >
+                     <option value="" disabled>Choose site...</option>
+                     {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">2. Material Asset Selection (Line Wise Relevance)</label>
                    <select 
-                    className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none appearance-none" 
+                    className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none appearance-none focus:ring-2 focus:ring-blue-500" 
                     value={usageData.materialId} 
                     onChange={e => setUsageData(p => ({ ...p, materialId: e.target.value }))} 
                     required
+                    disabled={!usageData.projectId}
                   >
                     <option value="">Choose item to deduct...</option>
-                    {materials.map(m => (
-                      <option key={m.id} value={m.id}>
-                        {m.name} ({(m.totalPurchased - m.totalUsed).toLocaleString()} In-Stock)
-                      </option>
-                    ))}
+                    
+                    {/* Site Specific Line-Wise Section */}
+                    {organizedUsageMaterials.siteSpecific.length > 0 && (
+                      <optgroup label="--- Inventory for this Project Site ---">
+                        {organizedUsageMaterials.siteSpecific.map(({ mat, vendorName, key }) => (
+                          <option key={key} value={mat.id}>
+                            {mat.name} - (Supplier: {vendorName}) • { (mat.totalPurchased - mat.totalUsed).toLocaleString() } {mat.unit} Available in Pool
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+
+                    {/* Other Inventory Section */}
+                    {organizedUsageMaterials.others.length > 0 && (
+                      <optgroup label="--- All Other Available Project Stocks ---">
+                        {organizedUsageMaterials.others.map(m => (
+                          <option key={m.id} value={m.id}>
+                            {m.name} • { (m.totalPurchased - m.totalUsed).toLocaleString() } {m.unit} In-Stock Global
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
                   </select>
+                  
+                  {usageData.projectId && organizedUsageMaterials.siteSpecific.length === 0 && (
+                    <p className="text-[9px] font-bold text-amber-600 mt-1 uppercase flex items-center gap-1">
+                      <AlertCircle size={10} /> Note: No materials have been specifically purchased for this project yet.
+                    </p>
+                  )}
                 </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                    <div className="space-y-1.5">
                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Quantity to Use</label>
-                      <input type="number" required step="0.01" placeholder="0.00" className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={usageData.quantity} onChange={e => setUsageData(p => ({ ...p, quantity: e.target.value }))} />
+                      <input type="number" required step="0.01" placeholder="0.00" className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none focus:ring-2 focus:ring-blue-500" value={usageData.quantity} onChange={e => setUsageData(p => ({ ...p, quantity: e.target.value }))} />
                    </div>
                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Project Assignment</label>
-                      <select className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white appearance-none" value={usageData.projectId} onChange={e => setUsageData(p => ({ ...p, projectId: e.target.value }))} required>
-                         <option value="" disabled>Choose site...</option>
-                         {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                      </select>
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Consumption Date</label>
+                      <input type="date" required className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none focus:ring-2 focus:ring-blue-500" value={usageData.date} onChange={e => setUsageData(p => ({ ...p, date: e.target.value }))} />
                    </div>
                 </div>
+
                 <div className="space-y-1.5">
                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Consumption Note / Task</label>
-                   <textarea rows={2} placeholder="e.g. Ground Floor Masonry..." className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={usageData.notes} onChange={e => setUsageData(p => ({ ...p, notes: e.target.value }))} />
+                   <textarea rows={2} placeholder="e.g. Ground Floor Masonry..." className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none focus:ring-2 focus:ring-blue-500" value={usageData.notes} onChange={e => setUsageData(p => ({ ...p, notes: e.target.value }))} />
                 </div>
+
                 <button type="submit" className="w-full bg-blue-600 text-white py-5 rounded-[2rem] font-black shadow-2xl shadow-blue-100 dark:shadow-none active:scale-95 transition-all text-sm uppercase tracking-widest flex items-center justify-center gap-3">
                   <CheckCircle2 size={24} /> Confirm Consumption
                 </button>
@@ -654,7 +890,7 @@ export const Inventory: React.FC = () => {
                     <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Editing: {editingMaterial.name}</p>
                   </div>
                 </div>
-                <button onClick={() => setShowEditModal(false)} className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white"><X size={32} /></button>
+                <button onClick={() => setShowEditModal(false)} className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"><X size={32} /></button>
              </div>
              <form onSubmit={handleEditMaterialSubmit} className="p-8 space-y-6 pb-safe">
                 <div className="space-y-1.5">
@@ -670,7 +906,7 @@ export const Inventory: React.FC = () => {
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Base Cost / Unit</label>
-                    <input type="number" step="0.01" className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={editFormData.costPerUnit} onChange={e => setEditFormData(p => ({ ...p, costPerUnit: e.target.value }))} required />
+                    <input type="number" step="0.01" className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none px-5 py-4" value={editFormData.costPerUnit} onChange={e => setEditFormData(p => ({ ...p, costPerUnit: e.target.value }))} required />
                   </div>
                 </div>
                 <button type="submit" className="w-full bg-slate-900 dark:bg-white dark:text-slate-900 text-white py-5 rounded-[2rem] font-black shadow-2xl active:scale-95 transition-all text-sm uppercase tracking-widest flex items-center justify-center gap-3">

@@ -25,10 +25,12 @@ import {
   Package,
   CheckCircle2,
   Phone,
-  Activity
+  Activity,
+  ArrowRightLeft,
+  Landmark
 } from 'lucide-react';
 import { useApp } from '../AppContext';
-import { ProjectStatus, Project, Expense, Income, PaymentMethod, Material } from '../types';
+import { ProjectStatus, Project, Expense, Income, PaymentMethod, Material, Payment } from '../types';
 
 const formatCurrency = (val: number) => `Rs. ${val.toLocaleString('en-IN')}`;
 
@@ -38,7 +40,7 @@ export const ProjectList: React.FC = () => {
     addProject, updateProject, deleteProject, 
     addExpense, updateExpense, deleteExpense,
     addIncome, updateIncome, deleteIncome,
-    updateMaterial
+    updateMaterial, addPayment, payments
   } = useApp();
   
   const [filter, setFilter] = useState<string>('All');
@@ -50,6 +52,13 @@ export const ProjectList: React.FC = () => {
   const [showQuickExpense, setShowQuickExpense] = useState(false);
   const [showQuickIncome, setShowQuickIncome] = useState(false);
   const [showInventoryUsageModal, setShowInventoryUsageModal] = useState(false);
+
+  // Quick Pay state
+  const [showQuickPayModal, setShowQuickPayModal] = useState(false);
+  const [selectedExpForPay, setSelectedExpForPay] = useState<Expense | null>(null);
+  const [payFormData, setPayFormData] = useState({
+    amount: '', date: new Date().toISOString().split('T')[0], method: 'Bank' as PaymentMethod, reference: ''
+  });
 
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
   const [editingIncome, setEditingIncome] = useState<Income | null>(null);
@@ -64,6 +73,7 @@ export const ProjectList: React.FC = () => {
         setShowInventoryUsageModal(false);
         setEditingExpense(null);
         setEditingIncome(null);
+        setShowQuickPayModal(false);
       }
     };
     window.addEventListener('keydown', handleEsc);
@@ -96,7 +106,6 @@ export const ProjectList: React.FC = () => {
     const totalCollected = projectIncomes.reduce((sum, i) => sum + i.amount, 0);
     const progress = Math.min(100, Math.round((totalSpent / budget) * 100)) || 0;
     
-    // Category Breakdown
     const categories: Record<string, number> = {};
     projectExpenses.forEach(e => {
       categories[e.category] = (categories[e.category] || 0) + e.amount;
@@ -145,7 +154,6 @@ export const ProjectList: React.FC = () => {
       return;
     }
 
-    // 1. Update Inventory State
     updateMaterial({
       ...material,
       totalUsed: material.totalUsed + qty,
@@ -159,14 +167,13 @@ export const ProjectList: React.FC = () => {
       }]
     });
 
-    // 2. Add Expense entry to Project
     const totalCost = qty * material.costPerUnit;
     addExpense({
       id: 'e-inv-' + Date.now(),
       date: inventoryUsageForm.date,
       projectId: viewingProject.id,
       amount: totalCost,
-      paymentMethod: 'Bank', // Internal allocation
+      paymentMethod: 'Bank',
       category: 'Material',
       notes: `Inventory Consumption: ${qty} ${material.unit} of ${material.name} used on site.`
     });
@@ -227,6 +234,46 @@ export const ProjectList: React.FC = () => {
     if (confirm(`Are you sure you want to delete ${name}? This will remove all project history.`)) {
       deleteProject(id);
     }
+  };
+
+  const handleInitiatePayFromInsights = (exp: Expense) => {
+    const totalPaidForExp = payments
+      .filter(p => p.materialBatchId === 'sh-exp-' + exp.id)
+      .reduce((sum, p) => sum + p.amount, 0);
+    
+    const remaining = Math.max(0, exp.amount - totalPaidForExp);
+    
+    setSelectedExpForPay(exp);
+    setPayFormData({
+      amount: remaining.toString(),
+      date: new Date().toISOString().split('T')[0],
+      method: 'Bank',
+      reference: ''
+    });
+    setShowQuickPayModal(true);
+  };
+
+  const handleQuickPaySubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedExpForPay || !selectedExpForPay.vendorId) return;
+
+    const amountNum = parseFloat(payFormData.amount) || 0;
+    if (amountNum <= 0) return;
+
+    const payment: Payment = {
+      id: 'pay-exp-' + Date.now(),
+      date: payFormData.date,
+      vendorId: selectedExpForPay.vendorId,
+      projectId: selectedExpForPay.projectId,
+      amount: amountNum,
+      method: payFormData.method,
+      reference: payFormData.reference,
+      materialBatchId: 'sh-exp-' + selectedExpForPay.id
+    };
+
+    addPayment(payment);
+    setShowQuickPayModal(false);
+    setSelectedExpForPay(null);
   };
 
   return (
@@ -366,7 +413,6 @@ export const ProjectList: React.FC = () => {
               </div>
 
               <div className="flex-1 overflow-y-auto p-4 sm:p-8 bg-slate-50/20 dark:bg-slate-900/10 no-scrollbar">
-                {/* Financial Summary Dashboard */}
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
                   <div className="bg-white dark:bg-slate-800 p-5 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm">
                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Project Budget</p>
@@ -391,7 +437,6 @@ export const ProjectList: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Detailed Expense Summary Section */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
                   <div className="lg:col-span-2 bg-white dark:bg-slate-800 p-6 rounded-[2rem] border border-slate-200 dark:border-slate-700 shadow-sm">
                     <div className="flex items-center justify-between mb-6">
@@ -456,7 +501,6 @@ export const ProjectList: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Ledger View Tabs */}
                 <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] border border-slate-200 dark:border-slate-700 overflow-hidden shadow-sm flex flex-col">
                   <div className="flex flex-col sm:flex-row border-b border-slate-100 dark:border-slate-700 justify-between items-start sm:items-center pr-6 bg-slate-50/30 dark:bg-slate-900/20">
                     <div className="flex w-full sm:w-auto">
@@ -499,27 +543,47 @@ export const ProjectList: React.FC = () => {
                        </thead>
                        <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
                           {activeDetailTab === 'expenses' ? (
-                            projectExpenses.slice().reverse().map(e => (
-                              <tr key={e.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/50 transition-colors group/row">
-                                <td className="px-8 py-5 text-xs font-bold text-slate-500 dark:text-slate-400">{new Date(e.date).toLocaleDateString()}</td>
-                                <td className="px-8 py-5">
-                                  <p className="text-sm font-bold text-slate-800 dark:text-slate-200">{e.notes}</p>
-                                  <span className="text-[9px] font-black uppercase text-blue-500">{e.category}</span>
-                                </td>
-                                <td className="px-8 py-5 text-sm font-black text-red-600 text-right">{formatCurrency(e.amount)}</td>
-                                <td className="px-8 py-5 text-right">
-                                  <div className="flex justify-end gap-2 opacity-100 lg:opacity-0 group-hover/row:opacity-100 transition-opacity">
-                                    <button onClick={() => handleEditExpense(e)} className="p-2 text-slate-400 hover:text-blue-600"><Pencil size={18} /></button>
-                                    <button onClick={() => deleteExpense(e.id)} className="p-2 text-slate-400 hover:text-red-600"><Trash2 size={18} /></button>
-                                  </div>
-                                </td>
-                              </tr>
-                            ))
+                            projectExpenses.slice().reverse().map(e => {
+                              const isMatPurchase = e.category === 'Material' && e.vendorId;
+                              const totalPaidForExp = payments
+                                .filter(p => p.materialBatchId === 'sh-exp-' + e.id)
+                                .reduce((sum, p) => sum + p.amount, 0);
+                              const isFullyPaid = isMatPurchase && totalPaidForExp >= (e.amount - 0.01);
+
+                              return (
+                                <tr key={e.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/50 transition-colors group/row">
+                                  <td className="px-8 py-5 text-xs font-bold text-slate-500 dark:text-slate-400">{new Date(e.date).toLocaleDateString()}</td>
+                                  <td className="px-8 py-5">
+                                    <p className="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-tighter truncate max-w-[200px]">{e.notes}</p>
+                                    <span className="text-[9px] font-black uppercase text-blue-500">{e.category}</span>
+                                    {isMatPurchase && !isFullyPaid && (
+                                      <p className="text-[8px] font-black text-amber-500 uppercase mt-0.5">Dues Pending: {formatCurrency(e.amount - totalPaidForExp)}</p>
+                                    )}
+                                  </td>
+                                  <td className="px-8 py-5 text-sm font-black text-red-600 text-right">{formatCurrency(e.amount)}</td>
+                                  <td className="px-8 py-5 text-right">
+                                    <div className="flex justify-end gap-1 opacity-100 lg:opacity-0 group-hover/row:opacity-100 transition-opacity">
+                                      {isMatPurchase && !isFullyPaid && (
+                                        <button 
+                                          onClick={() => handleInitiatePayFromInsights(e)}
+                                          className="p-2 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-lg"
+                                          title="Initiate Payment"
+                                        >
+                                          <DollarSign size={16} />
+                                        </button>
+                                      )}
+                                      <button onClick={() => handleEditExpense(e)} className="p-2 text-slate-400 hover:text-blue-600"><Pencil size={18} /></button>
+                                      <button onClick={() => deleteExpense(e.id)} className="p-2 text-slate-400 hover:text-red-600"><Trash2 size={18} /></button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })
                           ) : (
                             incomes.filter(i => i.projectId === viewingProject.id).slice().reverse().map(i => (
                               <tr key={i.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/50 transition-colors group/row">
                                 <td className="px-8 py-5 text-xs font-bold text-slate-500 dark:text-slate-400">{new Date(i.date).toLocaleDateString()}</td>
-                                <td className="px-8 py-5 text-sm font-bold text-slate-800 dark:text-slate-200">{i.description}</td>
+                                <td className="px-8 py-5 text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-tighter">{i.description}</td>
                                 <td className="px-8 py-5 text-sm font-black text-emerald-600 text-right">{formatCurrency(i.amount)}</td>
                                 <td className="px-8 py-5 text-right">
                                   <div className="flex justify-end gap-2 opacity-100 lg:opacity-0 group-hover/row:opacity-100 transition-opacity">
@@ -701,6 +765,75 @@ export const ProjectList: React.FC = () => {
                  </button>
               </form>
            </div>
+        </div>
+      )}
+
+      {/* Quick Pay Modal for Material Purchase Settlements */}
+      {showQuickPayModal && selectedExpForPay && (
+        <div className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
+          <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-w-lg shadow-2xl overflow-hidden mobile-sheet animate-in slide-in-from-bottom-8 duration-300">
+             <div className="p-8 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-emerald-50/30 dark:bg-emerald-900/10 shrink-0">
+                <div className="flex gap-4 items-center">
+                  <div className="p-4 bg-emerald-600 text-white rounded-2xl shadow-lg">
+                    <DollarSign size={24} />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tighter leading-none">Initiate Settlement</h2>
+                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Paying: {vendors.find(v => v.id === selectedExpForPay.vendorId)?.name}</p>
+                  </div>
+                </div>
+                <button onClick={() => setShowQuickPayModal(false)} className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white"><X size={32} /></button>
+             </div>
+             <form onSubmit={handleQuickPaySubmit} className="p-8 space-y-5 pb-safe overflow-y-auto no-scrollbar max-h-[75vh]">
+                <div className="bg-slate-900 dark:bg-slate-950 p-6 rounded-[2rem] text-white flex justify-between items-center shadow-2xl">
+                   <div>
+                      <p className="text-[10px] font-black text-white/50 uppercase tracking-widest mb-1">Expense Bill Value</p>
+                      <p className="text-xl font-black">{formatCurrency(selectedExpForPay.amount)}</p>
+                   </div>
+                   <ArrowRightLeft className="text-white/20" size={24} />
+                   <div className="text-right">
+                      <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest mb-1">Settlement Qty</p>
+                      <p className="text-xl font-black text-emerald-500">{formatCurrency(parseFloat(payFormData.amount) || 0)}</p>
+                   </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                   <div className="space-y-1.5">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Payment Amount (Rs.)</label>
+                      <input type="number" required step="0.01" className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-black dark:text-white outline-none focus:ring-4 focus:ring-emerald-500/10" value={payFormData.amount} onChange={e => setPayFormData(p => ({ ...p, amount: e.target.value }))} />
+                   </div>
+                   <div className="space-y-1.5">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Value Date</label>
+                      <input type="date" required className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={payFormData.date} onChange={e => setPayFormData(p => ({ ...p, date: e.target.value }))} />
+                   </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Payment Mode</label>
+                  <div className="grid grid-cols-3 gap-2">
+                     {(['Bank', 'Cash', 'Online'] as PaymentMethod[]).map(m => (
+                       <button
+                         key={m} type="button"
+                         onClick={() => setPayFormData(p => ({ ...p, method: m }))}
+                         className={`py-3 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${payFormData.method === m ? 'bg-slate-900 border-slate-900 text-white shadow-lg' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-500'}`}
+                       >{m}</button>
+                     ))}
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Reference / UTR Number</label>
+                   <div className="relative">
+                      <Landmark className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                      <input type="text" placeholder="Optional transaction code..." className="w-full pl-12 pr-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={payFormData.reference} onChange={e => setPayFormData(p => ({ ...p, reference: e.target.value }))} />
+                   </div>
+                </div>
+
+                <button type="submit" className="w-full bg-emerald-600 text-white py-5 rounded-[2rem] font-black shadow-2xl shadow-emerald-100 dark:shadow-none active:scale-95 transition-all text-sm uppercase tracking-widest flex items-center justify-center gap-3">
+                  <CheckCircle2 size={24} /> Confirm Settlement
+                </button>
+             </form>
+          </div>
         </div>
       )}
 
