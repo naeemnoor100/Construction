@@ -1,3 +1,4 @@
+
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
@@ -11,11 +12,6 @@ export default defineConfig({
     // Shim process.env.API_KEY to be available in the browser
     // This allows the app to use the key provided by Vercel environment variables
     'process.env.API_KEY': JSON.stringify(process.env.API_KEY),
-  },
-  resolve: {
-    // CRITICAL: This prevents the "useRef" null error by forcing 
-    // all dependencies to use the same React instance.
-    dedupe: ['react', 'react-dom'],
   },
   server: {
     port: 3000,

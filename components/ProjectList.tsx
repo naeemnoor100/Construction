@@ -99,37 +99,6 @@ export const ProjectList: React.FC = () => {
 
   const filteredProjects = projects.filter(p => filter === 'All' || p.status === filter);
 
-  // Site specific inventory calculation for the insights modal
-  const siteRelevantMaterials = useMemo(() => {
-    if (!viewingProject) return [];
-    
-    const siteItems: { id: string, name: string, unit: string, siteBalance: number, vendorNames: string[] }[] = [];
-    
-    materials.forEach(m => {
-      const sitePurchases = m.history?.filter(h => h.type === 'Purchase' && h.projectId === viewingProject.id) || [];
-      const siteUsages = m.history?.filter(h => h.type === 'Usage' && h.projectId === viewingProject.id) || [];
-      
-      const totalSitePurchased = sitePurchases.reduce((sum, h) => sum + h.quantity, 0);
-      const totalSiteUsed = siteUsages.reduce((sum, h) => sum + h.quantity, 0);
-      const siteBalance = totalSitePurchased - totalSiteUsed;
-
-      if (siteBalance > 0) {
-        const vendorIds = Array.from(new Set(sitePurchases.map(h => h.vendorId).filter(Boolean)));
-        const vendorNames = vendorIds.map(vid => vendors.find(v => v.id === vid)?.name || 'Unknown Vendor');
-        
-        siteItems.push({
-          id: m.id,
-          name: m.name,
-          unit: m.unit,
-          siteBalance,
-          vendorNames
-        });
-      }
-    });
-
-    return siteItems;
-  }, [materials, viewingProject, vendors]);
-
   const calculateProjectMetrics = (projectId: string, budget: number) => {
     const projectExpenses = expenses.filter(e => e.projectId === projectId);
     const projectIncomes = incomes.filter(i => i.projectId === projectId);
@@ -180,9 +149,8 @@ export const ProjectList: React.FC = () => {
 
     if (!material) return;
 
-    const siteData = siteRelevantMaterials.find(s => s.id === material.id);
-    if (!siteData || siteData.siteBalance < qty) {
-      alert(`Error: Insufficient stock at this site. (Available: ${siteData?.siteBalance || 0} ${material.unit})`);
+    if (material.totalPurchased - material.totalUsed < qty) {
+      alert("Error: Insufficient stock available for this allocation.");
       return;
     }
 
@@ -657,17 +625,17 @@ export const ProjectList: React.FC = () => {
              </div>
              <form onSubmit={handleInventoryUsageSubmit} className="p-6 space-y-5 pb-safe">
                 <div className="space-y-1.5">
-                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Select Material (Site Stock Available)</label>
+                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Select Material from Stock</label>
                    <select 
-                    className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none appearance-none text-xs" 
+                    className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none appearance-none" 
                     value={inventoryUsageForm.materialId} 
                     onChange={e => setInventoryUsageForm(p => ({ ...p, materialId: e.target.value }))} 
                     required
                   >
                     <option value="">Choose Asset...</option>
-                    {siteRelevantMaterials.map(m => (
+                    {materials.map(m => (
                       <option key={m.id} value={m.id}>
-                        {m.name} • Bal: {m.siteBalance.toLocaleString()} {m.unit} • Supp: {m.vendorNames.join(', ') || 'Direct'}
+                        {m.name} ({m.totalPurchased - m.totalUsed} {m.unit} In-Stock)
                       </option>
                     ))}
                   </select>
@@ -847,7 +815,7 @@ export const ProjectList: React.FC = () => {
                        <button
                          key={m} type="button"
                          onClick={() => setPayFormData(p => ({ ...p, method: m }))}
-                         className={`py-3 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${payFormData.method === m ? 'bg-slate-900 border-slate-900 text-white shadow-lg' : 'bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-500'}`}
+                         className={`py-3 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${payFormData.method === m ? 'bg-slate-900 border-slate-900 text-white shadow-lg' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-500'}`}
                        >{m}</button>
                      ))}
                   </div>

@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -13,19 +14,11 @@
             fontFamily: {
               inter: ['Inter', 'sans-serif'],
             },
-            colors: {
-              procore: {
-                blue: '#003366',
-                orange: '#FF5A00',
-                gray: '#F4F6F8',
-                border: '#E1E8EE'
-              }
-            }
           },
         },
       }
     </script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
             --safe-area-inset-top: env(safe-area-inset-top);
@@ -33,17 +26,17 @@
         }
         body {
             font-family: 'Inter', sans-serif;
-            background-color: #F4F6F8;
+            background-color: #f8fafc;
             -webkit-tap-highlight-color: transparent;
-            overflow: hidden;
+            user-select: none;
         }
         .dark body {
             background-color: #0f172a;
         }
-        
+        /* Custom scrollbar */
         ::-webkit-scrollbar {
-            width: 6px;
-            height: 6px;
+            width: 4px;
+            height: 4px;
         }
         ::-webkit-scrollbar-track {
             background: transparent;
@@ -63,31 +56,39 @@
             padding-top: var(--safe-area-inset-top);
         }
 
-        .procore-shadow {
-            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+        /* Mobile Bottom Sheet Style Modals */
+        @media (max-width: 640px) {
+            .mobile-sheet {
+                margin-top: auto !important;
+                border-bottom-left-radius: 0 !important;
+                border-bottom-right-radius: 0 !important;
+                max-height: 92vh !important;
+                width: 100% !important;
+                animation: slideUp 0.3s ease-out forwards;
+            }
         }
 
-        .no-scrollbar::-webkit-scrollbar {
-            display: none;
+        @keyframes slideUp {
+            from { transform: translateY(100%); }
+            to { transform: translateY(0); }
         }
-        .no-scrollbar {
-            -ms-overflow-style: none;
-            scrollbar-width: none;
+
+        /* Smooth tab transitions */
+        .tab-active {
+            transform: translateY(-2px);
         }
     </style>
 <script type="importmap">
 {
   "imports": {
-    "react": "https://esm.sh/react@19.0.0",
-    "react-dom": "https://esm.sh/react-dom@19.0.0",
-    "react-dom/client": "https://esm.sh/react-dom@19.0.0/client",
-    "lucide-react": "https://esm.sh/lucide-react@0.463.0?deps=react@19.0.0",
-    "recharts": "https://esm.sh/recharts@2.13.0?deps=react@19.0.0",
-    "@google/genai": "https://esm.sh/@google/genai@1.40.0",
+    "react": "https://esm.sh/react@^19.2.4",
     "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
     "react/": "https://esm.sh/react@^19.2.4/",
+    "lucide-react": "https://esm.sh/lucide-react@^0.563.0",
+    "recharts": "https://esm.sh/recharts@^3.7.0",
     "vite": "https://esm.sh/vite@^7.3.1",
-    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.4"
+    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.4",
+    "@google/genai": "https://esm.sh/@google/genai@^1.40.0"
   }
 }
 </script>

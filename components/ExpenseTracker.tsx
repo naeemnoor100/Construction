@@ -50,38 +50,6 @@ export const ExpenseTracker: React.FC = () => {
 
   const isPurchase = useMemo(() => !!formData.vendorId, [formData.vendorId]);
 
-  // Enhanced Logic: Site specific inventory filtering for consumption
-  const siteSpecificInventory = useMemo(() => {
-    if (!formData.projectId || isPurchase) return materials;
-
-    const siteItems: { id: string, name: string, unit: string, siteBalance: number, vendorNames: string[] }[] = [];
-    
-    materials.forEach(m => {
-      const sitePurchases = m.history?.filter(h => h.type === 'Purchase' && h.projectId === formData.projectId) || [];
-      const siteUsages = m.history?.filter(h => h.type === 'Usage' && h.projectId === formData.projectId) || [];
-      
-      let sitePurchasedQty = sitePurchases.reduce((sum, h) => sum + h.quantity, 0);
-      let siteUsedQty = siteUsages.reduce((sum, h) => sum + h.quantity, 0);
-
-      // Adjust for current edit
-      if (editingExpense && editingExpense.projectId === formData.projectId && editingExpense.materialId === m.id) {
-        if (!editingExpense.vendorId) { // It was a usage record
-           siteUsedQty -= (editingExpense.materialQuantity || 0);
-        }
-      }
-
-      const siteBalance = sitePurchasedQty - siteUsedQty;
-
-      if (siteBalance > 0) {
-        const vIds = Array.from(new Set(sitePurchases.map(h => h.vendorId).filter(Boolean)));
-        const vNames = vIds.map(vid => vendors.find(v => v.id === vid)?.name || 'Unknown Vendor');
-        siteItems.push({ id: m.id, name: m.name, unit: m.unit, siteBalance, vendorNames: vNames });
-      }
-    });
-
-    return siteItems;
-  }, [materials, formData.projectId, isPurchase, vendors, editingExpense]);
-
   const calculatedCost = useMemo(() => {
     if (!selectedMaterial || !formData.materialQuantity) return 0;
     return (parseFloat(formData.materialQuantity) || 0) * selectedMaterial.costPerUnit;
@@ -100,11 +68,13 @@ export const ExpenseTracker: React.FC = () => {
       const mat = materials.find(m => m.id === formData.materialId);
       const qty = parseFloat(formData.materialQuantity) || 0;
       
-      const siteData = (siteSpecificInventory as any[]).find(s => s.id === formData.materialId);
-      const availableStock = siteData?.siteBalance || 0;
+      let availableStock = mat ? (mat.totalPurchased - mat.totalUsed) : 0;
+      if (editingExpense && !editingExpense.vendorId && editingExpense.materialId === formData.materialId) {
+        availableStock += (editingExpense.materialQuantity || 0);
+      }
 
       if (qty > availableStock) {
-        alert(`Error: Insufficient stock at this site. (Available: ${availableStock.toLocaleString()} ${mat?.unit || 'units'}). To add stock, select a Billing Vendor.`);
+        alert(`Error: Insufficient Stock for site usage. Available: ${availableStock.toLocaleString()} ${mat?.unit || 'units'}. Requested: ${qty.toLocaleString()}. To add stock, select a Billing Vendor.`);
         return;
       }
     }
@@ -355,7 +325,7 @@ export const ExpenseTracker: React.FC = () => {
                        <button
                          key={m} type="button"
                          onClick={() => setPayFormData(p => ({ ...p, method: m }))}
-                         className={`py-3 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${payFormData.method === m ? 'bg-slate-900 border-slate-900 text-white shadow-lg' : 'bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-500'}`}
+                         className={`py-3 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${payFormData.method === m ? 'bg-slate-900 border-slate-900 text-white shadow-lg' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-500'}`}
                        >{m}</button>
                      ))}
                   </div>
@@ -400,7 +370,7 @@ export const ExpenseTracker: React.FC = () => {
                    <select 
                     className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none appearance-none" 
                     value={formData.projectId} 
-                    onChange={(e) => setFormData(p => ({ ...p, projectId: e.target.value, materialId: '' }))}
+                    onChange={(e) => setFormData(p => ({ ...p, projectId: e.target.value }))}
                     required
                   >
                     <option value="" disabled>Select site...</option>
@@ -412,7 +382,7 @@ export const ExpenseTracker: React.FC = () => {
                    <select 
                     className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none appearance-none" 
                     value={formData.category} 
-                    onChange={(e) => setFormData(p => ({ ...p, category: e.target.value, materialId: '' }))}
+                    onChange={(e) => setFormData(p => ({ ...p, category: e.target.value }))}
                   >
                     {tradeCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                   </select>
@@ -434,16 +404,13 @@ export const ExpenseTracker: React.FC = () => {
                    </div>
                    <div className="space-y-4">
                       <select 
-                        className="w-full px-5 py-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold text-xs dark:text-white outline-none"
+                        className="w-full px-5 py-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold text-sm dark:text-white outline-none"
                         value={formData.materialId}
                         onChange={e => setFormData(p => ({ ...p, materialId: e.target.value }))}
-                        disabled={!formData.projectId}
                       >
-                         <option value="">{formData.projectId ? 'Choose item...' : 'Select site first...'}</option>
-                         {(siteSpecificInventory as any[]).map(m => (
-                           <option key={m.id} value={m.id}>
-                             {m.name} {!isPurchase ? `• Bal: ${m.siteBalance?.toLocaleString()} ${m.unit} • Supp: ${m.vendorNames?.join(', ') || 'Direct'}` : `(${m.unit})`}
-                           </option>
+                         <option value="">Choose item...</option>
+                         {materials.map(m => (
+                           <option key={m.id} value={m.id}>{m.name} ({(m.totalPurchased - m.totalUsed).toLocaleString()} {m.unit} In-Stock)</option>
                          ))}
                       </select>
                       {formData.materialId && (
