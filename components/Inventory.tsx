@@ -28,7 +28,9 @@ import {
   DollarSign,
   ChevronRight,
   ClipboardList,
-  BarChart4
+  BarChart4,
+  ArrowDownLeft,
+  ArrowUpRight
 } from 'lucide-react';
 import { useApp } from '../AppContext';
 import { Material, MaterialUnit, StockHistoryEntry, Expense, Project, Vendor } from '../types';
@@ -121,6 +123,10 @@ export const Inventory: React.FC = () => {
     });
   }, [materials, searchTerm, projectFilter, vendorFilter, inventorySort]);
 
+  const totalInventoryValueSum = useMemo(() => {
+    return filteredMaterials.reduce((sum, mat) => sum + (mat.siteBalance * mat.costPerUnit), 0);
+  }, [filteredMaterials]);
+
   const filteredHistory = useMemo(() => {
     if (!historyMaterial || !historyMaterial.history) return [];
     
@@ -166,6 +172,29 @@ export const Inventory: React.FC = () => {
       return 0;
     });
   }, [historyMaterial, historySearch, historySort, projects, vendors, activeHistoryTab]);
+
+  const historySummaryStats = useMemo(() => {
+    if (!historyMaterial || !historyMaterial.history) return { inwardValue: 0, usageValue: 0, totalInwardQty: 0, totalUsageQty: 0 };
+    
+    // We use the filtered history to reflect what user is seeing after filters/search
+    const inward = filteredHistory.filter(h => h.type === 'Purchase');
+    const usage = filteredHistory.filter(h => h.type === 'Usage');
+    
+    const inwardValue = inward.reduce((sum, h) => sum + (h.quantity * (h.unitPrice || historyMaterial.costPerUnit)), 0);
+    const usageValue = usage.reduce((sum, h) => sum + (h.quantity * (h.unitPrice || historyMaterial.costPerUnit)), 0);
+    const totalInwardQty = inward.reduce((sum, h) => sum + h.quantity, 0);
+    const totalUsageQty = usage.reduce((sum, h) => sum + h.quantity, 0);
+
+    return { inwardValue, usageValue, totalInwardQty, totalUsageQty };
+  }, [filteredHistory, historyMaterial]);
+
+  const totalHistoryValueSum = useMemo(() => {
+    if (!historyMaterial) return 0;
+    if (activeHistoryTab === 'purchases') return historySummaryStats.inwardValue;
+    if (activeHistoryTab === 'usage') return historySummaryStats.usageValue;
+    // Full Log: Inward Value - Usage Value
+    return historySummaryStats.inwardValue - historySummaryStats.usageValue;
+  }, [historySummaryStats, activeHistoryTab, historyMaterial]);
 
   const usageStats = useMemo(() => {
     if (!historyMaterial || !historyMaterial.history) return { totalUsed: 0, distinctProjects: 0 };
@@ -533,6 +562,13 @@ export const Inventory: React.FC = () => {
                   </tr>
                 );
               })}
+              {filteredMaterials.length > 0 && (
+                <tr className="bg-slate-50 dark:bg-slate-900 font-black text-slate-900 dark:text-white">
+                  <td className="px-8 py-5 text-[10px] uppercase tracking-widest">Grand Total Value</td>
+                  <td className="px-8 py-5 text-sm">{formatCurrency(totalInventoryValueSum)}</td>
+                  <td colSpan={2} className="px-8 py-5 text-right text-[9px] text-slate-400 uppercase tracking-widest">Sum of currently displayed items</td>
+                </tr>
+              )}
               {filteredMaterials.length === 0 && (
                 <tr>
                   <td colSpan={4} className="px-8 py-20 text-center">
@@ -611,22 +647,35 @@ export const Inventory: React.FC = () => {
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 sm:p-8 bg-slate-50/20 dark:bg-slate-900/10 no-scrollbar">
-               {activeHistoryTab === 'usage' && (
+               {(activeHistoryTab === 'all' || activeHistoryTab === 'usage') && (
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                    {activeHistoryTab === 'all' && (
+                      <div className="bg-emerald-600 p-6 rounded-[2rem] text-white shadow-xl shadow-emerald-100 dark:shadow-none flex items-center justify-between">
+                         <div>
+                            <p className="text-[10px] font-black uppercase tracking-widest opacity-70 mb-1">Total Inward Value</p>
+                            <p className="text-2xl font-black">{formatCurrency(historySummaryStats.inwardValue)}</p>
+                            <p className="text-[9px] font-bold uppercase mt-1 opacity-60">{historySummaryStats.totalInwardQty.toLocaleString()} {historyMaterial.unit}s Received</p>
+                         </div>
+                         <ShoppingCart size={32} className="opacity-30" />
+                      </div>
+                    )}
                     <div className="bg-blue-600 p-6 rounded-[2rem] text-white shadow-xl shadow-blue-100 dark:shadow-none flex items-center justify-between">
                        <div>
-                          <p className="text-[10px] font-black uppercase tracking-widest opacity-70 mb-1">Total Consumed</p>
-                          <p className="text-2xl font-black">{usageStats.totalUsed.toLocaleString()} {historyMaterial.unit}s</p>
+                          <p className="text-[10px] font-black uppercase tracking-widest opacity-70 mb-1">Total Consumption Value</p>
+                          <p className="text-2xl font-black">{formatCurrency(historySummaryStats.usageValue)}</p>
+                          <p className="text-[9px] font-bold uppercase mt-1 opacity-60">{historySummaryStats.totalUsageQty.toLocaleString()} {historyMaterial.unit}s Consumed</p>
                        </div>
                        <TrendingDown size={32} className="opacity-30" />
                     </div>
-                    <div className="bg-white dark:bg-slate-800 p-6 rounded-[2rem] border border-slate-200 dark:border-slate-700 shadow-sm flex items-center justify-between">
-                       <div>
-                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Impacted Sites</p>
-                          <p className="text-2xl font-black text-slate-900 dark:text-white">{usageStats.distinctProjects} Projects</p>
-                       </div>
-                       <BarChart4 size={32} className="text-blue-500 opacity-20" />
-                    </div>
+                    {activeHistoryTab === 'usage' && (
+                      <div className="bg-white dark:bg-slate-800 p-6 rounded-[2rem] border border-slate-200 dark:border-slate-700 shadow-sm flex items-center justify-between">
+                         <div>
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Impacted Sites</p>
+                            <p className="text-2xl font-black text-slate-900 dark:text-white">{usageStats.distinctProjects} Projects</p>
+                         </div>
+                         <BarChart4 size={32} className="text-blue-500 opacity-20" />
+                      </div>
+                    )}
                  </div>
                )}
 
@@ -646,85 +695,106 @@ export const Inventory: React.FC = () => {
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
                         {filteredHistory.length > 0 ? (
-                          filteredHistory.map((entry) => {
-                            const project = projects.find(p => p.id === entry.projectId);
-                            const vendor = vendors.find(v => v.id === entry.vendorId);
-                            
-                            return (
-                              <tr key={entry.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/50 transition-colors group">
-                                <td className="px-8 py-5 text-xs font-bold text-slate-500 dark:text-slate-400">{new Date(entry.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
-                                <td className="px-8 py-5">
-                                  <div className="flex items-center gap-2">
-                                    {entry.type === 'Purchase' ? (
-                                      <div className="p-1.5 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg text-emerald-600">
-                                        <ShoppingCart size={12} />
-                                      </div>
-                                    ) : (
-                                      <div className="p-1.5 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-blue-600">
-                                        <TrendingDown size={12} />
-                                      </div>
-                                    )}
-                                    <span className={`text-[10px] font-black uppercase tracking-widest ${entry.type === 'Purchase' ? 'text-emerald-600' : 'text-blue-600'}`}>{entry.type}</span>
-                                  </div>
-                                  <p className="text-[11px] text-slate-700 dark:text-slate-300 font-semibold mt-1">{entry.note}</p>
-                                </td>
-                                <td className="px-8 py-5">
-                                  <span className={`text-sm font-black ${entry.type === 'Purchase' ? 'text-emerald-600' : 'text-blue-600'}`}>
-                                    {entry.type === 'Purchase' ? '+' : '-'}{entry.quantity.toLocaleString()} {historyMaterial.unit}
-                                  </span>
-                                </td>
-                                <td className="px-8 py-5 text-right">
-                                  <span className="text-xs font-bold text-slate-600 dark:text-slate-400">
-                                    {formatCurrency(entry.unitPrice || historyMaterial.costPerUnit)}
-                                  </span>
-                                </td>
-                                <td className="px-8 py-5 text-right">
-                                  <span className={`text-xs font-black ${entry.type === 'Purchase' ? 'text-emerald-600' : 'text-blue-600'}`}>
-                                    {formatCurrency(entry.quantity * (entry.unitPrice || historyMaterial.costPerUnit))}
-                                  </span>
-                                </td>
-                                <td className="px-8 py-5">
-                                  <div className="flex flex-col gap-1">
-                                    {project && (
-                                      <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-tight">
-                                        <Briefcase size={12} className="text-blue-500" />
-                                        {project.name}
-                                      </div>
-                                    )}
-                                    {vendor && (
-                                      <div className="flex items-center gap-1.5 text-[11px] font-black text-slate-800 dark:text-slate-200 uppercase tracking-tighter">
-                                        <Users size={12} className="text-emerald-500" />
-                                        {vendor.name}
-                                      </div>
-                                    )}
-                                    {!project && !vendor && <span className="text-[10px] text-slate-400 italic">Manual Log Entry</span>}
-                                  </div>
-                                </td>
-                                <td className="px-8 py-5 text-right">
-                                  <div className="flex justify-end gap-1">
-                                    <button 
-                                      onClick={() => {
-                                        setEditingHistoryEntry({ material: historyMaterial, entry });
-                                        setHistoryEditFormData({
-                                          quantity: entry.quantity.toString(),
-                                          unitPrice: (entry.unitPrice || historyMaterial.costPerUnit).toString(),
-                                          projectId: entry.projectId || '',
-                                          vendorId: entry.vendorId || '',
-                                          date: entry.date,
-                                          note: entry.note || ''
-                                        });
-                                        setShowEditHistoryModal(true);
-                                      }}
-                                      className="p-2 text-slate-300 hover:text-blue-600 transition-colors"
-                                    >
-                                      <Pencil size={16} />
-                                    </button>
-                                    <button onClick={() => handleDeleteHistoryEntry(historyMaterial, entry.id)} className="p-2 text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={16} /></button>
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          })
+                          <>
+                            {filteredHistory.map((entry) => {
+                              const project = projects.find(p => p.id === entry.projectId);
+                              const vendor = vendors.find(v => v.id === entry.vendorId);
+                              
+                              return (
+                                <tr key={entry.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/50 transition-colors group">
+                                  <td className="px-8 py-5 text-xs font-bold text-slate-500 dark:text-slate-400">{new Date(entry.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
+                                  <td className="px-8 py-5">
+                                    <div className="flex items-center gap-2">
+                                      {entry.type === 'Purchase' ? (
+                                        <div className="p-1.5 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg text-emerald-600">
+                                          <ShoppingCart size={12} />
+                                        </div>
+                                      ) : (
+                                        <div className="p-1.5 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-blue-600">
+                                          <TrendingDown size={12} />
+                                        </div>
+                                      )}
+                                      <span className={`text-[10px] font-black uppercase tracking-widest ${entry.type === 'Purchase' ? 'text-emerald-600' : 'text-blue-600'}`}>{entry.type}</span>
+                                    </div>
+                                    <p className="text-[11px] text-slate-700 dark:text-slate-300 font-semibold mt-1">{entry.note}</p>
+                                  </td>
+                                  <td className="px-8 py-5">
+                                    <span className={`text-sm font-black ${entry.type === 'Purchase' ? 'text-emerald-600' : 'text-blue-600'}`}>
+                                      {entry.type === 'Purchase' ? '+' : '-'}{entry.quantity.toLocaleString()} {historyMaterial.unit}
+                                    </span>
+                                  </td>
+                                  <td className="px-8 py-5 text-right">
+                                    <span className="text-xs font-bold text-slate-600 dark:text-slate-400">
+                                      {formatCurrency(entry.unitPrice || historyMaterial.costPerUnit)}
+                                    </span>
+                                  </td>
+                                  <td className="px-8 py-5 text-right">
+                                    <span className={`text-xs font-black ${entry.type === 'Purchase' ? 'text-emerald-600' : 'text-blue-600'}`}>
+                                      {formatCurrency(entry.quantity * (entry.unitPrice || historyMaterial.costPerUnit))}
+                                    </span>
+                                  </td>
+                                  <td className="px-8 py-5">
+                                    <div className="flex flex-col gap-1">
+                                      {project && (
+                                        <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-tight">
+                                          <Briefcase size={12} className="text-blue-500" />
+                                          {project.name} 
+                                          <span className="text-slate-400 font-medium ml-1">
+                                            ({project.client}-{project.location})
+                                          </span>
+                                        </div>
+                                      )}
+                                      {vendor && (
+                                        <div className="flex items-center gap-1.5 text-[11px] font-black text-slate-800 dark:text-slate-200 uppercase tracking-tighter">
+                                          <Users size={12} className="text-emerald-500" />
+                                          {vendor.name}
+                                          {vendor.address && (
+                                            <span className="text-slate-400 font-medium ml-1 text-[9px] normal-case truncate max-w-[150px]" title={vendor.address}>
+                                              ({vendor.address})
+                                            </span>
+                                          )}
+                                        </div>
+                                      )}
+                                      {!project && !vendor && <span className="text-[10px] text-slate-400 italic">Manual Log Entry</span>}
+                                    </div>
+                                  </td>
+                                  <td className="px-8 py-5 text-right">
+                                    <div className="flex justify-end gap-1">
+                                      <button 
+                                        onClick={() => {
+                                          setEditingHistoryEntry({ material: historyMaterial, entry });
+                                          setHistoryEditFormData({
+                                            quantity: entry.quantity.toString(),
+                                            unitPrice: (entry.unitPrice || historyMaterial.costPerUnit).toString(),
+                                            projectId: entry.projectId || '',
+                                            vendorId: entry.vendorId || '',
+                                            date: entry.date,
+                                            note: entry.note || ''
+                                          });
+                                          setShowEditHistoryModal(true);
+                                        }}
+                                        className="p-2 text-slate-300 hover:text-blue-600 transition-colors"
+                                      >
+                                        <Pencil size={16} />
+                                      </button>
+                                      <button onClick={() => handleDeleteHistoryEntry(historyMaterial, entry.id)} className="p-2 text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={16} /></button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                            <tr className="bg-slate-50 dark:bg-slate-900 font-black text-slate-900 dark:text-white">
+                              <td colSpan={4} className="px-8 py-5 text-[10px] uppercase tracking-widest text-left">
+                                {activeHistoryTab === 'all' ? 'Net Cumulative Value (Purchases - Usage)' : 'Cumulative Total Value (Filtered)'}
+                              </td>
+                              <td className="px-8 py-5 text-right text-sm">
+                                <span className={totalHistoryValueSum < 0 ? 'text-red-500' : 'text-slate-900 dark:text-white'}>
+                                  {formatCurrency(totalHistoryValueSum)}
+                                </span>
+                              </td>
+                              <td colSpan={2} className="px-8 py-5 text-right text-[9px] text-slate-400 uppercase tracking-widest">Aggregated for displayed logs</td>
+                            </tr>
+                          </>
                         ) : (
                           <tr>
                             <td colSpan={7} className="px-8 py-20 text-center">
@@ -846,7 +916,7 @@ export const Inventory: React.FC = () => {
       {/* Usage Modal */}
       {showUsageModal && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
-           <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-w-xl shadow-2xl overflow-hidden mobile-sheet animate-in slide-in-from-bottom-8 duration-300">
+           <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-xl shadow-2xl overflow-hidden mobile-sheet animate-in slide-in-from-bottom-8 duration-300">
               <div className="p-8 border-b border-slate-100 dark:border-slate-700 bg-blue-50/30 dark:bg-blue-900/20 flex justify-between items-center shrink-0">
                  <div className="flex gap-4 items-center">
                     <div className="p-4 bg-blue-600 text-white rounded-2xl shadow-lg">
@@ -920,7 +990,7 @@ export const Inventory: React.FC = () => {
       {showEditHistoryModal && editingHistoryEntry && (
         <div className="fixed inset-0 z-[160] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
            <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-w-xl shadow-2xl overflow-hidden mobile-sheet animate-in slide-in-from-bottom-8 duration-300">
-              <div className="p-8 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-50 dark:bg-slate-900 shrink-0">
+              <div className="p-8 border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 shrink-0">
                  <h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">Edit Activity Log</h2>
                  <button onClick={() => setShowEditHistoryModal(false)} className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"><X size={32} /></button>
               </div>
@@ -995,7 +1065,7 @@ export const Inventory: React.FC = () => {
                        <input type="number" required step="0.01" className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={editFormData.costPerUnit} onChange={e => setEditFormData(p => ({ ...p, costPerUnit: e.target.value }))} />
                     </div>
                  </div>
-                 <div className="flex gap-4 pt-6">
+                 <div className="flex gap-4 pt-4">
                     <button type="button" onClick={() => setShowEditModal(false)} className="flex-1 bg-slate-100 dark:bg-slate-700 py-4 rounded-[1.5rem] font-bold text-sm uppercase tracking-widest text-slate-500">Cancel</button>
                     <button type="submit" className="flex-1 bg-blue-600 text-white py-4 rounded-[1.5rem] font-black shadow-2xl transition-all active:scale-95 text-sm uppercase tracking-widest">Update Asset</button>
                  </div>
