@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Package, 
@@ -31,7 +30,9 @@ import {
   BarChart4,
   ArrowDownLeft,
   ArrowUpRight,
-  Scale
+  Scale,
+  Lock,
+  Info
 } from 'lucide-react';
 import { useApp } from '../AppContext';
 import { Material, MaterialUnit, StockHistoryEntry, Expense, Project, Vendor } from '../types';
@@ -43,7 +44,7 @@ type HistorySortOption = 'date-desc' | 'date-asc' | 'qty-high' | 'qty-low';
 type HistoryTab = 'all' | 'purchases' | 'usage';
 
 export const Inventory: React.FC = () => {
-  const { materials, projects, vendors, stockingUnits, updateMaterial, addMaterial, deleteMaterial, addExpense, deleteExpense, updateVendor } = useApp();
+  const { materials, projects, vendors, stockingUnits, payments, updateMaterial, addMaterial, deleteMaterial, addExpense, deleteExpense, updateVendor } = useApp();
   const [searchTerm, setSearchTerm] = useState('');
   const [projectFilter, setProjectFilter] = useState('All');
   const [vendorFilter, setVendorFilter] = useState('All');
@@ -64,6 +65,12 @@ export const Inventory: React.FC = () => {
   const [historyEditFormData, setHistoryEditFormData] = useState({
     quantity: '', unitPrice: '', projectId: '', vendorId: '', date: '', note: ''
   });
+
+  // Check if current history entry being edited is locked (has payments linked)
+  const isHistoryEntryLocked = useMemo(() => {
+    if (!editingHistoryEntry) return false;
+    return payments.some(p => p.materialBatchId === editingHistoryEntry.entry.id);
+  }, [editingHistoryEntry, payments]);
 
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
@@ -88,8 +95,56 @@ export const Inventory: React.FC = () => {
   });
 
   const [editFormData, setEditFormData] = useState({
-    name: '', unit: stockingUnits[0] || 'Bag', costPerUnit: ''
+    name: '', unit: stockingUnits[0] || 'Bag'
   });
+
+  // Added missing helper to filter materials by project for usage modal
+  const relevantMaterialsForSite = useMemo(() => {
+    if (!usageData.projectId) return [];
+    return materials.map(mat => {
+      const sitePurchases = mat.history?.filter(h => h.type === 'Purchase' && h.projectId === usageData.projectId) || [];
+      const siteUsages = mat.history?.filter(h => h.type === 'Usage' && h.projectId === usageData.projectId) || [];
+      const totalSitePurchased = sitePurchases.reduce((sum, h) => sum + h.quantity, 0);
+      const totalSiteUsed = siteUsages.reduce((sum, h) => sum + h.quantity, 0);
+      const siteBalance = totalSitePurchased - totalSiteUsed;
+      return { ...mat, siteBalance };
+    });
+  }, [materials, usageData.projectId]);
+
+  // Added missing function to handle opening the usage modal with pre-filled data
+  const handleOpenUsageModal = (materialId?: string, projectId?: string) => {
+    setUsageData({
+      materialId: materialId || '',
+      projectId: projectId || projects[0]?.id || '',
+      quantity: '',
+      date: new Date().toISOString().split('T')[0],
+      notes: ''
+    });
+    setShowUsageModal(true);
+  };
+
+  // Added missing function to handle opening the edit modal for a material
+  const handleOpenEditModal = (mat: Material) => {
+    setEditingMaterial(mat);
+    setEditFormData({
+      name: mat.name,
+      unit: mat.unit
+    });
+    setShowEditModal(true);
+  };
+
+  // Added missing function to handle the material edit submission
+  const handleEditMaterialSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingMaterial) return;
+    updateMaterial({
+      ...editingMaterial,
+      name: editFormData.name,
+      unit: editFormData.unit as MaterialUnit
+    });
+    setShowEditModal(false);
+    setEditingMaterial(null);
+  };
 
   const filteredMaterials = useMemo(() => {
     let result = materials.map(mat => {
@@ -177,7 +232,6 @@ export const Inventory: React.FC = () => {
   const historySummaryStats = useMemo(() => {
     if (!historyMaterial || !historyMaterial.history) return { inwardValue: 0, usageValue: 0, totalInwardQty: 0, totalUsageQty: 0 };
     
-    // We use the filtered history to reflect what user is seeing after filters/search
     const inward = filteredHistory.filter(h => h.type === 'Purchase');
     const usage = filteredHistory.filter(h => h.type === 'Usage');
     
@@ -193,74 +247,8 @@ export const Inventory: React.FC = () => {
     if (!historyMaterial) return 0;
     if (activeHistoryTab === 'purchases') return historySummaryStats.inwardValue;
     if (activeHistoryTab === 'usage') return historySummaryStats.usageValue;
-    // Full Log: Inward Value - Usage Value
     return historySummaryStats.inwardValue - historySummaryStats.usageValue;
   }, [historySummaryStats, activeHistoryTab, historyMaterial]);
-
-  const usageStats = useMemo(() => {
-    if (!historyMaterial || !historyMaterial.history) return { totalUsed: 0, distinctProjects: 0 };
-    const usages = historyMaterial.history.filter(h => h.type === 'Usage');
-    const total = usages.reduce((sum, h) => sum + h.quantity, 0);
-    const projIds = new Set(usages.map(u => u.projectId).filter(Boolean));
-    return { totalUsed: total, distinctProjects: projIds.size };
-  }, [historyMaterial]);
-
-  const relevantMaterialsForSite = useMemo(() => {
-    if (!usageData.projectId) return [];
-
-    const siteInventory: { 
-      id: string, 
-      name: string, 
-      unit: string, 
-      siteBalance: number, 
-      vendorNames: string[] 
-    }[] = [];
-
-    materials.forEach(m => {
-      const sitePurchases = m.history?.filter(h => h.type === 'Purchase' && h.projectId === usageData.projectId) || [];
-      const siteUsages = m.history?.filter(h => h.type === 'Usage' && h.projectId === usageData.projectId) || [];
-      
-      const totalSitePurchased = sitePurchases.reduce((sum, h) => sum + h.quantity, 0);
-      const totalSiteUsed = siteUsages.reduce((sum, h) => sum + h.quantity, 0);
-      const siteBalance = totalSitePurchased - totalSiteUsed;
-
-      if (siteBalance > 0) {
-        const vendorIds = Array.from(new Set(sitePurchases.map(h => h.vendorId).filter(Boolean)));
-        const vendorNames = vendorIds.map(vid => vendors.find(v => v.id === vid)?.name || 'Unknown Vendor');
-        
-        siteInventory.push({
-          id: m.id,
-          name: m.name,
-          unit: m.unit,
-          siteBalance,
-          vendorNames
-        });
-      }
-    });
-
-    return siteInventory;
-  }, [materials, usageData.projectId, vendors]);
-
-  const handleOpenUsageModal = (matId?: string, projId?: string) => {
-    setUsageData({
-      materialId: matId || '',
-      projectId: projId || (projectFilter !== 'All' ? projectFilter : (projects[0]?.id || '')),
-      quantity: '',
-      date: new Date().toISOString().split('T')[0],
-      notes: ''
-    });
-    setShowUsageModal(true);
-  };
-
-  const handleOpenEditModal = (mat: Material) => {
-    setEditingMaterial(mat);
-    setEditFormData({
-      name: mat.name,
-      unit: mat.unit,
-      costPerUnit: mat.costPerUnit.toString()
-    });
-    setShowEditModal(true);
-  };
 
   const handleProcureStock = (e: React.FormEvent) => {
     e.preventDefault();
@@ -369,13 +357,12 @@ export const Inventory: React.FC = () => {
     }
   };
 
-  const handleDeleteAsset = (id: string, name: string) => {
-    if (confirm(`Permanent Action: Are you sure you want to delete ${name} from inventory? All linked stock logs will be removed.`)) {
-      deleteMaterial(id);
-    }
-  };
-
   const handleDeleteHistoryEntry = (material: Material, entryId: string) => {
+    if (payments.some(p => p.materialBatchId === entryId)) {
+      alert("Lock Violation: This entry cannot be deleted because settlements (payments) have already been recorded against it in the Supplier Ledger.");
+      return;
+    }
+
     if (!confirm("Recalculate Stock: Delete this log entry? Total inventory levels will be adjusted automatically.")) return;
     const entry = material.history?.find(h => h.id === entryId);
     const newHistory = material.history?.filter(h => h.id !== entryId) || [];
@@ -386,7 +373,7 @@ export const Inventory: React.FC = () => {
       const vendor = vendors.find(v => v.id === entry.vendorId);
       if (vendor) {
         const cost = entry.quantity * (entry.unitPrice || material.costPerUnit);
-        updateVendor({ ...vendor, balance: Math.max(0, vendor.balance - cost) });
+        updateVendor({ ...vendor, balance: vendor.balance - cost });
       }
     }
 
@@ -408,7 +395,7 @@ export const Inventory: React.FC = () => {
         const oldVendor = vendors.find(v => v.id === oldEntry.vendorId);
         if (oldVendor) {
           const oldCost = oldEntry.quantity * (oldEntry.unitPrice || material.costPerUnit);
-          updateVendor({ ...oldVendor, balance: Math.max(0, oldVendor.balance - oldCost) });
+          updateVendor({ ...oldVendor, balance: oldVendor.balance - oldCost });
         }
       }
       
@@ -445,18 +432,6 @@ export const Inventory: React.FC = () => {
     setHistoryMaterial(updatedMat);
     setShowEditHistoryModal(false);
     setEditingHistoryEntry(null);
-  };
-
-  const handleEditMaterialSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingMaterial) return;
-    updateMaterial({
-      ...editingMaterial,
-      name: editFormData.name,
-      unit: editFormData.unit,
-      costPerUnit: parseFloat(editFormData.costPerUnit) || 0
-    });
-    setShowEditModal(false);
   };
 
   return (
@@ -557,27 +532,12 @@ export const Inventory: React.FC = () => {
                            <History size={18} />
                          </button>
                          <button onClick={() => handleOpenEditModal(mat)} className="p-3 text-slate-400 hover:text-blue-600 transition-colors"><Pencil size={18} /></button>
-                         <button onClick={() => handleDeleteAsset(mat.id, mat.name)} className="p-3 text-slate-300 hover:text-red-600 transition-colors"><Trash2 size={18} /></button>
+                         <button onClick={() => { if(confirm(`Permanent Action: Are you sure you want to delete ${mat.name}?`)) deleteMaterial(mat.id); }} className="p-3 text-slate-300 hover:text-red-600 transition-colors"><Trash2 size={18} /></button>
                        </div>
                     </td>
                   </tr>
                 );
               })}
-              {filteredMaterials.length > 0 && (
-                <tr className="bg-slate-50 dark:bg-slate-900 font-black text-slate-900 dark:text-white">
-                  <td className="px-8 py-5 text-[10px] uppercase tracking-widest">Grand Total Value</td>
-                  <td className="px-8 py-5 text-sm">{formatCurrency(totalInventoryValueSum)}</td>
-                  <td colSpan={2} className="px-8 py-5 text-right text-[9px] text-slate-400 uppercase tracking-widest">Sum of currently displayed items</td>
-                </tr>
-              )}
-              {filteredMaterials.length === 0 && (
-                <tr>
-                  <td colSpan={4} className="px-8 py-20 text-center">
-                    <Package size={48} className="mx-auto text-slate-200 dark:text-slate-700 mb-4 opacity-30" />
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">No materials match the filter</p>
-                  </td>
-                </tr>
-              )}
             </tbody>
           </table>
         </div>
@@ -630,49 +590,9 @@ export const Inventory: React.FC = () => {
                     onChange={(e) => setHistorySearch(e.target.value)}
                   />
                </div>
-               <div className="flex gap-2 w-full sm:w-auto">
-                  <div className="relative flex-1 sm:flex-none">
-                     <ArrowUpNarrowWide className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
-                     <select 
-                       className="pl-9 pr-8 py-3 w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-[10px] font-black uppercase tracking-widest outline-none appearance-none dark:text-white shadow-sm"
-                       value={historySort}
-                       onChange={(e) => setHistorySort(e.target.value as HistorySortOption)}
-                     >
-                        <option value="date-desc">Newest Entry First</option>
-                        <option value="date-asc">Oldest First</option>
-                        <option value="qty-high">Quantity: High-Low</option>
-                        <option value="qty-low">Quantity: Low-High</option>
-                     </select>
-                  </div>
-               </div>
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 sm:p-8 bg-slate-50/20 dark:bg-slate-900/10 no-scrollbar">
-               {(activeHistoryTab === 'all' || activeHistoryTab === 'usage' || activeHistoryTab === 'purchases') && (
-                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                    {(activeHistoryTab === 'all' || activeHistoryTab === 'purchases') && (
-                      <div className="bg-emerald-600 p-6 rounded-[2rem] text-white shadow-xl shadow-emerald-100 dark:shadow-none flex items-center justify-between">
-                         <div>
-                            <p className="text-[10px] font-black uppercase tracking-widest opacity-70 mb-1">Total Quantity Inward</p>
-                            <p className="text-2xl font-black">{historySummaryStats.totalInwardQty.toLocaleString()} {historyMaterial.unit}s</p>
-                            <p className="text-[9px] font-bold uppercase mt-1 opacity-60">Procurement Value: {formatCurrency(historySummaryStats.inwardValue)}</p>
-                         </div>
-                         <ShoppingCart size={32} className="opacity-30" />
-                      </div>
-                    )}
-                    {(activeHistoryTab === 'all' || activeHistoryTab === 'usage') && (
-                      <div className="bg-blue-600 p-6 rounded-[2rem] text-white shadow-xl shadow-blue-100 dark:shadow-none flex items-center justify-between">
-                         <div>
-                            <p className="text-[10px] font-black uppercase tracking-widest opacity-70 mb-1">Total Quantity Consumed</p>
-                            <p className="text-2xl font-black">{historySummaryStats.totalUsageQty.toLocaleString()} {historyMaterial.unit}s</p>
-                            <p className="text-[9px] font-bold uppercase mt-1 opacity-60">Financial Impact: {formatCurrency(historySummaryStats.usageValue)}</p>
-                         </div>
-                         <Scale size={32} className="opacity-30" />
-                      </div>
-                    )}
-                 </div>
-               )}
-
                <div className="bg-white dark:bg-slate-800 rounded-[2rem] border border-slate-200 dark:border-slate-700 overflow-hidden shadow-sm">
                  <div className="overflow-x-auto no-scrollbar">
                     <table className="w-full text-left min-w-[850px]">
@@ -688,121 +608,163 @@ export const Inventory: React.FC = () => {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-                        {filteredHistory.length > 0 ? (
-                          <>
-                            {filteredHistory.map((entry) => {
-                              const project = projects.find(p => p.id === entry.projectId);
-                              const vendor = vendors.find(v => v.id === entry.vendorId);
-                              
-                              return (
-                                <tr key={entry.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/50 transition-colors group">
-                                  <td className="px-8 py-5 text-xs font-bold text-slate-500 dark:text-slate-400">{new Date(entry.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
-                                  <td className="px-8 py-5">
-                                    <div className="flex items-center gap-2">
-                                      {entry.type === 'Purchase' ? (
-                                        <div className="p-1.5 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg text-emerald-600">
-                                          <ShoppingCart size={12} />
-                                        </div>
-                                      ) : (
-                                        <div className="p-1.5 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-blue-600">
-                                          <TrendingDown size={12} />
-                                        </div>
-                                      )}
-                                      <span className={`text-[10px] font-black uppercase tracking-widest ${entry.type === 'Purchase' ? 'text-emerald-600' : 'text-blue-600'}`}>{entry.type}</span>
+                        {filteredHistory.map((entry) => {
+                          const project = projects.find(p => p.id === entry.projectId);
+                          const vendor = vendors.find(v => v.id === entry.vendorId);
+                          const isLocked = payments.some(p => p.materialBatchId === entry.id);
+                          
+                          return (
+                            <tr key={entry.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/50 transition-colors group">
+                              <td className="px-8 py-5 text-xs font-bold text-slate-500 dark:text-slate-400">{new Date(entry.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
+                              <td className="px-8 py-5">
+                                <div className="flex items-center gap-2">
+                                  {entry.type === 'Purchase' ? (
+                                    <div className="p-1.5 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg text-emerald-600">
+                                      <ShoppingCart size={12} />
                                     </div>
-                                    <p className="text-[11px] text-slate-700 dark:text-slate-300 font-semibold mt-1">{entry.note}</p>
-                                  </td>
-                                  <td className="px-8 py-5">
-                                    <span className={`text-sm font-black ${entry.type === 'Purchase' ? 'text-emerald-600' : 'text-blue-600'}`}>
-                                      {entry.type === 'Purchase' ? '+' : '-'}{entry.quantity.toLocaleString()} {historyMaterial.unit}
-                                    </span>
-                                  </td>
-                                  <td className="px-8 py-5 text-right">
-                                    <span className="text-xs font-bold text-slate-600 dark:text-slate-400">
-                                      {formatCurrency(entry.unitPrice || historyMaterial.costPerUnit)}
-                                    </span>
-                                  </td>
-                                  <td className="px-8 py-5 text-right">
-                                    <span className={`text-xs font-black ${entry.type === 'Purchase' ? 'text-emerald-600' : 'text-blue-600'}`}>
-                                      {formatCurrency(entry.quantity * (entry.unitPrice || historyMaterial.costPerUnit))}
-                                    </span>
-                                  </td>
-                                  <td className="px-8 py-5">
-                                    <div className="flex flex-col gap-1">
-                                      {project && (
-                                        <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-tight">
-                                          <Briefcase size={12} className="text-blue-500" />
-                                          {project.name} 
-                                          <span className="text-slate-400 font-medium ml-1">
-                                            ({project.client}-{project.location})
-                                          </span>
-                                        </div>
-                                      )}
-                                      {vendor && (
-                                        <div className="flex items-center gap-1.5 text-[11px] font-black text-slate-800 dark:text-slate-200 uppercase tracking-tighter">
-                                          <Users size={12} className="text-emerald-500" />
-                                          {vendor.name}
-                                          {vendor.address && (
-                                            <span className="text-slate-400 font-medium ml-1 text-[9px] normal-case truncate max-w-[150px]" title={vendor.address}>
-                                              ({vendor.address})
-                                            </span>
-                                          )}
-                                        </div>
-                                      )}
-                                      {!project && !vendor && <span className="text-[10px] text-slate-400 italic">Manual Log Entry</span>}
+                                  ) : (
+                                    <div className="p-1.5 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-blue-600">
+                                      <TrendingDown size={12} />
                                     </div>
-                                  </td>
-                                  <td className="px-8 py-5 text-right">
-                                    <div className="flex justify-end gap-1">
-                                      <button 
-                                        onClick={() => {
-                                          setEditingHistoryEntry({ material: historyMaterial, entry });
-                                          setHistoryEditFormData({
-                                            quantity: entry.quantity.toString(),
-                                            unitPrice: (entry.unitPrice || historyMaterial.costPerUnit).toString(),
-                                            projectId: entry.projectId || '',
-                                            vendorId: entry.vendorId || '',
-                                            date: entry.date,
-                                            note: entry.note || ''
-                                          });
-                                          setShowEditHistoryModal(true);
-                                        }}
-                                        className="p-2 text-slate-300 hover:text-blue-600 transition-colors"
-                                      >
-                                        <Pencil size={16} />
-                                      </button>
-                                      <button onClick={() => handleDeleteHistoryEntry(historyMaterial, entry.id)} className="p-2 text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={16} /></button>
-                                    </div>
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                            <tr className="bg-slate-50 dark:bg-slate-900 font-black text-slate-900 dark:text-white">
-                              <td colSpan={4} className="px-8 py-5 text-[10px] uppercase tracking-widest text-left">
-                                {activeHistoryTab === 'all' ? 'Net Cumulative Value (Purchases - Usage)' : 'Cumulative Total Value (Filtered)'}
+                                  )}
+                                  <span className={`text-[10px] font-black uppercase tracking-widest ${entry.type === 'Purchase' ? 'text-emerald-600' : 'text-blue-600'}`}>{entry.type}</span>
+                                  {isLocked && <Lock size={10} className="text-amber-500" title="Locked due to payment" />}
+                                </div>
+                                <p className="text-[11px] text-slate-700 dark:text-slate-300 font-semibold mt-1">{entry.note}</p>
                               </td>
-                              <td className="px-8 py-5 text-right text-sm">
-                                <span className={totalHistoryValueSum < 0 ? 'text-red-500' : 'text-slate-900 dark:text-white'}>
-                                  {formatCurrency(totalHistoryValueSum)}
+                              <td className="px-8 py-5">
+                                <span className={`text-sm font-black ${entry.type === 'Purchase' ? 'text-emerald-600' : 'text-blue-600'}`}>
+                                  {entry.type === 'Purchase' ? '+' : '-'}{entry.quantity.toLocaleString()} {historyMaterial.unit}
                                 </span>
                               </td>
-                              <td colSpan={2} className="px-8 py-5 text-right text-[9px] text-slate-400 uppercase tracking-widest">Aggregated for displayed logs</td>
+                              <td className="px-8 py-5 text-right font-bold text-slate-600 dark:text-slate-400">
+                                {formatCurrency(entry.unitPrice || historyMaterial.costPerUnit)}
+                              </td>
+                              <td className="px-8 py-5 text-right font-black text-slate-800 dark:text-slate-200">
+                                {formatCurrency(entry.quantity * (entry.unitPrice || historyMaterial.costPerUnit))}
+                              </td>
+                              <td className="px-8 py-5">
+                                <div className="flex flex-col gap-1">
+                                  {project && <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-tight flex items-center gap-1"><Briefcase size={12} className="text-blue-500"/> {project.name}</span>}
+                                  {vendor && <span className="text-[11px] font-black text-slate-800 dark:text-slate-200 uppercase tracking-tighter flex items-center gap-1"><Users size={12} className="text-emerald-500"/> {vendor.name}</span>}
+                                </div>
+                              </td>
+                              <td className="px-8 py-5 text-right">
+                                <div className="flex justify-end gap-1">
+                                  <button 
+                                    onClick={() => {
+                                      setEditingHistoryEntry({ material: historyMaterial, entry });
+                                      setHistoryEditFormData({
+                                        quantity: entry.quantity.toString(),
+                                        unitPrice: (entry.unitPrice || historyMaterial.costPerUnit).toString(),
+                                        projectId: entry.projectId || '',
+                                        vendorId: entry.vendorId || '',
+                                        date: entry.date,
+                                        note: entry.note || ''
+                                      });
+                                      setShowEditHistoryModal(true);
+                                    }}
+                                    className="p-2 text-slate-300 hover:text-blue-600 transition-colors"
+                                  >
+                                    <Pencil size={16} />
+                                  </button>
+                                  <button onClick={() => handleDeleteHistoryEntry(historyMaterial, entry.id)} className="p-2 text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={16} /></button>
+                                </div>
+                              </td>
                             </tr>
-                          </>
-                        ) : (
-                          <tr>
-                            <td colSpan={7} className="px-8 py-20 text-center">
-                              <History size={32} className="mx-auto text-slate-200 mb-2 opacity-30" />
-                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">No logs found for this filter</p>
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
+                          ))}
+                        </tbody>
+                      </table>
                  </div>
                </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Edit History Modal */}
+      {showEditHistoryModal && editingHistoryEntry && (
+        <div className="fixed inset-0 z-[160] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
+           <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-w-xl shadow-2xl overflow-hidden mobile-sheet animate-in slide-in-from-bottom-8 duration-300">
+              <div className="p-8 border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 flex justify-between items-center shrink-0">
+                 <div className="flex items-center gap-3">
+                   <h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">Edit Activity Log</h2>
+                   {isHistoryEntryLocked && (
+                     <div className="px-3 py-1 bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-900/50 rounded-lg flex items-center gap-2">
+                        <Lock size={12} className="text-amber-600" />
+                        <span className="text-[10px] font-black text-amber-700 dark:text-amber-400 uppercase tracking-widest">Financial Lock Active</span>
+                     </div>
+                   )}
+                 </div>
+                 <button onClick={() => setShowEditHistoryModal(false)} className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"><X size={32} /></button>
+              </div>
+              <form onSubmit={handleEditHistorySubmit} className="p-8 space-y-5 overflow-y-auto no-scrollbar max-h-[75vh] pb-safe">
+                 {isHistoryEntryLocked && (
+                   <div className="bg-amber-50 dark:bg-amber-900/20 p-4 rounded-2xl border border-amber-100 dark:border-amber-900/30 flex items-start gap-3">
+                      <Info size={18} className="text-amber-600 shrink-0 mt-0.5" />
+                      <p className="text-[11px] font-bold text-amber-800 dark:text-amber-200 leading-relaxed">
+                        This procurement record is locked because one or more settlements (payments) have already been recorded against it in the Supplier Ledger. To change the price or quantity, you must first delete the linked settlements from the Vendor's history.
+                      </p>
+                   </div>
+                 )}
+                 <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                       <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Quantity</label>
+                       <input 
+                        type="number" 
+                        step="0.01" 
+                        required 
+                        disabled={isHistoryEntryLocked}
+                        className={`w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white ${isHistoryEntryLocked ? 'opacity-50 cursor-not-allowed' : ''}`} 
+                        value={historyEditFormData.quantity} 
+                        onChange={e => setHistoryEditFormData(p => ({ ...p, quantity: e.target.value }))} 
+                       />
+                    </div>
+                    <div className="space-y-1.5">
+                       <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Unit Price (Rs.)</label>
+                       <input 
+                        type="number" 
+                        step="0.01" 
+                        required 
+                        disabled={isHistoryEntryLocked}
+                        className={`w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white ${isHistoryEntryLocked ? 'opacity-50 cursor-not-allowed' : ''}`} 
+                        value={historyEditFormData.unitPrice} 
+                        onChange={e => setHistoryEditFormData(p => ({ ...p, unitPrice: e.target.value }))} 
+                       />
+                    </div>
+                 </div>
+                 <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                       <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Site</label>
+                       <select className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white" value={historyEditFormData.projectId} onChange={e => setHistoryEditFormData(p => ({ ...p, projectId: e.target.value }))}>
+                          <option value="">No Site</option>
+                          {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                       </select>
+                    </div>
+                    <div className="space-y-1.5">
+                       <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Date</label>
+                       <input type="date" required className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white" value={historyEditFormData.date} onChange={e => setHistoryEditFormData(p => ({ ...p, date: e.target.value }))} />
+                    </div>
+                 </div>
+                 {editingHistoryEntry.entry.type === 'Purchase' && (
+                    <div className="space-y-1.5">
+                       <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Supplier</label>
+                       <select className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white" value={historyEditFormData.vendorId} onChange={e => setHistoryEditFormData(p => ({ ...p, vendorId: e.target.value }))}>
+                          <option value="">No Vendor</option>
+                          {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                       </select>
+                    </div>
+                 )}
+                 <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Note</label>
+                    <textarea rows={2} className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={historyEditFormData.note} onChange={e => setHistoryEditFormData(p => ({ ...p, note: e.target.value }))} />
+                 </div>
+                 <div className="flex gap-4 pt-6">
+                    <button type="button" onClick={() => setShowEditHistoryModal(false)} className="flex-1 bg-slate-100 dark:bg-slate-700 py-4 rounded-[1.5rem] font-bold text-sm uppercase tracking-widest text-slate-500">Cancel</button>
+                    <button type="submit" className="flex-1 bg-blue-600 text-white py-4 rounded-[1.5rem] font-black shadow-2xl transition-all active:scale-95 text-sm uppercase tracking-widest">Save Changes</button>
+                 </div>
+              </form>
+           </div>
         </div>
       )}
 
@@ -980,60 +942,6 @@ export const Inventory: React.FC = () => {
         </div>
       )}
 
-      {/* Edit History Modal */}
-      {showEditHistoryModal && editingHistoryEntry && (
-        <div className="fixed inset-0 z-[160] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
-           <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-w-xl shadow-2xl overflow-hidden mobile-sheet animate-in slide-in-from-bottom-8 duration-300">
-              <div className="p-8 border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 shrink-0">
-                 <h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">Edit Activity Log</h2>
-                 <button onClick={() => setShowEditHistoryModal(false)} className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"><X size={32} /></button>
-              </div>
-              <form onSubmit={handleEditHistorySubmit} className="p-8 space-y-5 overflow-y-auto no-scrollbar max-h-[75vh] pb-safe">
-                 <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1.5">
-                       <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Quantity</label>
-                       <input type="number" step="0.01" required className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white" value={historyEditFormData.quantity} onChange={e => setHistoryEditFormData(p => ({ ...p, quantity: e.target.value }))} />
-                    </div>
-                    <div className="space-y-1.5">
-                       <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Unit Price</label>
-                       <input type="number" step="0.01" required className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white" value={historyEditFormData.unitPrice} onChange={e => setHistoryEditFormData(p => ({ ...p, unitPrice: e.target.value }))} />
-                    </div>
-                 </div>
-                 <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1.5">
-                       <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Site</label>
-                       <select className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white" value={historyEditFormData.projectId} onChange={e => setHistoryEditFormData(p => ({ ...p, projectId: e.target.value }))}>
-                          <option value="">No Site</option>
-                          {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                       </select>
-                    </div>
-                    <div className="space-y-1.5">
-                       <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Date</label>
-                       <input type="date" required className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white" value={historyEditFormData.date} onChange={e => setHistoryEditFormData(p => ({ ...p, date: e.target.value }))} />
-                    </div>
-                 </div>
-                 {editingHistoryEntry.entry.type === 'Purchase' && (
-                    <div className="space-y-1.5">
-                       <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Supplier</label>
-                       <select className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white" value={historyEditFormData.vendorId} onChange={e => setHistoryEditFormData(p => ({ ...p, vendorId: e.target.value }))}>
-                          <option value="">No Vendor</option>
-                          {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                       </select>
-                    </div>
-                 )}
-                 <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Note</label>
-                    <textarea rows={2} className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white" value={historyEditFormData.note} onChange={e => setHistoryEditFormData(p => ({ ...p, note: e.target.value }))} />
-                 </div>
-                 <div className="flex gap-4 pt-6">
-                    <button type="button" onClick={() => setShowEditHistoryModal(false)} className="flex-1 bg-slate-100 dark:bg-slate-700 py-4 rounded-[1.5rem] font-bold text-sm uppercase tracking-widest text-slate-500">Cancel</button>
-                    <button type="submit" className="flex-1 bg-blue-600 text-white py-4 rounded-[1.5rem] font-black shadow-2xl transition-all active:scale-95 text-sm uppercase tracking-widest">Save Changes</button>
-                 </div>
-              </form>
-           </div>
-        </div>
-      )}
-
       {/* Edit Material Modal */}
       {showEditModal && editingMaterial && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
@@ -1047,17 +955,11 @@ export const Inventory: React.FC = () => {
                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Material Name</label>
                     <input type="text" required className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={editFormData.name} onChange={e => setEditFormData(p => ({ ...p, name: e.target.value }))} />
                  </div>
-                 <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1.5">
-                       <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Stocking Unit</label>
-                       <select className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={editFormData.unit} onChange={e => setEditFormData(p => ({ ...p, unit: e.target.value }))}>
-                          {stockingUnits.map(u => <option key={u} value={u}>{u}</option>)}
-                       </select>
-                    </div>
-                    <div className="space-y-1.5">
-                       <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Standard Unit Cost (Rs.)</label>
-                       <input type="number" required step="0.01" className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={editFormData.costPerUnit} onChange={e => setEditFormData(p => ({ ...p, costPerUnit: e.target.value }))} />
-                    </div>
+                 <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Stocking Unit</label>
+                    <select className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={editFormData.unit} onChange={e => setEditFormData(p => ({ ...p, unit: e.target.value }))}>
+                       {stockingUnits.map(u => <option key={u} value={u}>{u}</option>)}
+                    </select>
                  </div>
                  <div className="flex gap-4 pt-4">
                     <button type="button" onClick={() => setShowEditModal(false)} className="flex-1 bg-slate-100 dark:bg-slate-700 py-4 rounded-[1.5rem] font-bold text-sm uppercase tracking-widest text-slate-500">Cancel</button>
