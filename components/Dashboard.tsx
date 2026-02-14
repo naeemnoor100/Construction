@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo } from 'react';
 import { 
   Briefcase, 
@@ -14,7 +13,8 @@ import {
   AlertTriangle,
   CheckCircle2,
   Package,
-  ArrowRight
+  ArrowRight,
+  Wallet
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -59,7 +59,7 @@ const DashboardCard: React.FC<{
 );
 
 export const Dashboard: React.FC = () => {
-  const { projects, expenses, materials, incomes, addProject } = useApp();
+  const { projects, expenses, materials, incomes, invoices, addProject } = useApp();
   const [showModal, setShowModal] = useState(false);
 
   const [formData, setFormData] = useState({
@@ -68,6 +68,9 @@ export const Dashboard: React.FC = () => {
 
   const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
   const totalIncome = incomes.reduce((sum, i) => sum + i.amount, 0);
+  const totalInvoiced = invoices.reduce((sum, inv) => sum + inv.amount, 0);
+  const totalReceivables = Math.max(0, totalInvoiced - totalIncome);
+  
   const activeProjectsCount = projects.filter(p => p.status === 'Active').length;
   const inventoryValue = materials.reduce((acc, m) => acc + ((m.totalPurchased - m.totalUsed) * m.costPerUnit), 0);
 
@@ -85,13 +88,6 @@ export const Dashboard: React.FC = () => {
       .sort((a, b) => b.value - a.value)
       .slice(0, 5);
   }, [materials]);
-
-  const handleOpenModal = () => {
-    setFormData({
-      name: '', client: '', location: '', budget: '', startDate: new Date().toISOString().split('T')[0], status: 'Active'
-    });
-    setShowModal(true);
-  };
 
   const handleCreateProject = (e: React.FormEvent) => {
     e.preventDefault();
@@ -113,23 +109,22 @@ export const Dashboard: React.FC = () => {
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">Portfolio Summary</h1>
+          <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight uppercase">Portfolio Summary</h1>
           <p className="text-slate-500 dark:text-slate-400 text-sm">Review real-time operational and financial performance.</p>
         </div>
-        <div className="flex gap-2">
-          <button 
-            onClick={handleOpenModal}
-            className="flex items-center gap-2 bg-[#003366] hover:bg-[#002244] text-white px-5 py-2.5 rounded-lg font-bold text-sm shadow-md transition-all active:scale-95"
-          >
-            <Plus size={18} /> New Project
-          </button>
-        </div>
+        <button 
+          onClick={() => setShowModal(true)}
+          className="flex items-center gap-2 bg-[#003366] hover:bg-[#002244] text-white px-5 py-2.5 rounded-lg font-bold text-sm shadow-md transition-all active:scale-95"
+        >
+          <Plus size={18} /> New Project
+        </button>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <DashboardCard title="Active Sites" value={activeProjectsCount.toString()} icon={<Briefcase size={22} />} colorClass="bg-blue-600" />
-        <DashboardCard title="Revenue" value={formatCurrency(totalIncome)} icon={<ArrowUpCircle size={22} />} trend="12%" isPositive={true} colorClass="bg-emerald-600" />
-        <DashboardCard title="Costs" value={formatCurrency(totalExpenses)} icon={<TrendingDown size={22} />} trend="4%" isPositive={false} colorClass="bg-rose-600" />
+        <DashboardCard title="Revenue" value={formatCurrency(totalIncome)} icon={<ArrowUpCircle size={22} />} colorClass="bg-emerald-600" />
+        <DashboardCard title="Receivables" value={formatCurrency(totalReceivables)} icon={<Wallet size={22} />} colorClass="bg-indigo-600" />
+        <DashboardCard title="Total Costs" value={formatCurrency(totalExpenses)} icon={<TrendingDown size={22} />} colorClass="bg-rose-600" />
         <DashboardCard title="Inventory" value={formatCurrency(inventoryValue)} icon={<Layers size={22} />} colorClass="bg-amber-600" />
       </div>
 
@@ -139,7 +134,6 @@ export const Dashboard: React.FC = () => {
             <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest flex items-center gap-2">
               <Activity size={18} className="text-[#FF5A00]" /> Budget Utilization
             </h3>
-            <span className="text-[10px] font-bold text-slate-400 uppercase">Top 6 Projects</span>
           </div>
           <div className="p-6 h-[350px]">
             <ResponsiveContainer width="100%" height="100%">
@@ -191,54 +185,9 @@ export const Dashboard: React.FC = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
-          <div className="p-6 border-b border-slate-100 dark:border-slate-700">
-            <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest">Recent Expenditures</h3>
-          </div>
-          <div className="p-0 overflow-x-auto no-scrollbar">
-            <table className="w-full text-left">
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-                {expenses.slice(-5).reverse().map(e => (
-                  <tr key={e.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30">
-                    <td className="px-6 py-4">
-                      <p className="text-xs font-bold text-slate-900 dark:text-white uppercase">{e.notes}</p>
-                      <p className="text-[10px] text-slate-500">{e.date}</p>
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <span className="text-xs font-black text-rose-600">{formatCurrency(e.amount)}</span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm p-6">
-          <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest mb-6">Action Items</h3>
-          <div className="space-y-4">
-            <div className="flex items-center gap-4 p-4 bg-orange-50 dark:bg-orange-900/10 border border-orange-100 dark:border-orange-900/50 rounded-xl">
-              <div className="p-2 bg-orange-500 text-white rounded-lg"><AlertTriangle size={18} /></div>
-              <div>
-                <p className="text-xs font-bold text-slate-900 dark:text-white">Budget Overrun Risk</p>
-                <p className="text-[10px] text-slate-500">Check projects exceeding 90% budget utilization.</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-4 p-4 bg-emerald-50 dark:bg-emerald-900/10 border border-emerald-100 dark:border-emerald-900/50 rounded-xl">
-              <div className="p-2 bg-emerald-500 text-white rounded-lg"><CheckCircle2 size={18} /></div>
-              <div>
-                <p className="text-xs font-bold text-slate-900 dark:text-white">Inventory Levels Stable</p>
-                <p className="text-[10px] text-slate-500">Asset levels are verified across active sites.</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
       {showModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
-          <div className="bg-white dark:bg-slate-800 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden shadow-2xl scale-100 transition-all duration-200">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden scale-100 transition-all duration-200">
             <div className="p-6 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-[#003366] text-white">
               <h2 className="text-lg font-black uppercase tracking-tighter">New Project Launch</h2>
               <button onClick={() => setShowModal(false)} className="p-2 hover:bg-white/10 rounded-lg"><X size={20} /></button>

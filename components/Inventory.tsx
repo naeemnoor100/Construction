@@ -32,7 +32,11 @@ import {
   ArrowUpRight,
   Scale,
   Lock,
-  Info
+  Info,
+  Link,
+  Layers,
+  Copy,
+  LayoutGrid
 } from 'lucide-react';
 import { useApp } from '../AppContext';
 import { Material, MaterialUnit, StockHistoryEntry, Expense, Project, Vendor } from '../types';
@@ -43,8 +47,17 @@ type InventorySortOption = 'name' | 'stock-low' | 'stock-high' | 'cost';
 type HistorySortOption = 'date-desc' | 'date-asc' | 'qty-high' | 'qty-low';
 type HistoryTab = 'all' | 'purchases' | 'usage';
 
+interface BulkRow {
+  id: string;
+  materialId: string;
+  quantity: string;
+  unitPrice: string;
+  vendorId: string;
+  projectId: string;
+}
+
 export const Inventory: React.FC = () => {
-  const { materials, projects, vendors, stockingUnits, payments, updateMaterial, addMaterial, deleteMaterial, addExpense, deleteExpense, updateVendor } = useApp();
+  const { materials, projects, vendors, stockingUnits, payments, expenses, updateMaterial, addMaterial, deleteMaterial, addExpense, deleteExpense, updateExpense, updateVendor } = useApp();
   const [searchTerm, setSearchTerm] = useState('');
   const [projectFilter, setProjectFilter] = useState('All');
   const [vendorFilter, setVendorFilter] = useState('All');
@@ -56,6 +69,7 @@ export const Inventory: React.FC = () => {
   const [activeHistoryTab, setActiveHistoryTab] = useState<HistoryTab>('all');
   
   const [showProcureModal, setShowProcureModal] = useState(false);
+  const [showBulkModal, setShowBulkModal] = useState(false);
   const [showUsageModal, setShowUsageModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingMaterial, setEditingMaterial] = useState<Material | null>(null);
@@ -66,7 +80,14 @@ export const Inventory: React.FC = () => {
     quantity: '', unitPrice: '', projectId: '', vendorId: '', date: '', note: ''
   });
 
-  // Check if current history entry being edited is locked (has payments linked)
+  // Bulk Inward State
+  const [bulkRows, setBulkRows] = useState<BulkRow[]>([
+    { id: '1', materialId: '', quantity: '', unitPrice: '', vendorId: '', projectId: '' }
+  ]);
+  const [bulkGlobalVendor, setBulkGlobalVendor] = useState('');
+  const [bulkGlobalProject, setBulkGlobalProject] = useState('');
+  const [bulkDate, setBulkDate] = useState(new Date().toISOString().split('T')[0]);
+
   const isHistoryEntryLocked = useMemo(() => {
     if (!editingHistoryEntry) return false;
     return payments.some(p => p.materialBatchId === editingHistoryEntry.entry.id);
@@ -76,6 +97,7 @@ export const Inventory: React.FC = () => {
     const handleEsc = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setShowProcureModal(false);
+        setShowBulkModal(false);
         setShowUsageModal(false);
         setShowEditModal(false);
         setShowEditHistoryModal(false);
@@ -87,61 +109,66 @@ export const Inventory: React.FC = () => {
   }, []);
 
   const [procureData, setProcureData] = useState({
-    materialId: '', newName: '', vendorId: vendors[0]?.id || '', projectId: projects[0]?.id || '', quantity: '', unit: stockingUnits[0] || 'Bag', costPerUnit: '', date: new Date().toISOString().split('T')[0]
+    materialId: '', newName: '', vendorId: vendors[0]?.id || '', projectId: projects[0]?.id || '', quantity: '', unit: stockingUnits[0] || 'Bag', costPerUnit: '', date: new Date().toISOString().split('T')[0], note: ''
   });
 
   const [usageData, setUsageData] = useState({
-    materialId: '', projectId: projects[0]?.id || '', quantity: '', date: new Date().toISOString().split('T')[0], notes: ''
+    materialId: '', 
+    vendorId: '', 
+    projectId: projects[0]?.id || '', 
+    quantity: '', 
+    date: new Date().toISOString().split('T')[0], 
+    notes: ''
   });
 
   const [editFormData, setEditFormData] = useState({
     name: '', unit: stockingUnits[0] || 'Bag'
   });
 
-  // Added missing helper to filter materials by project for usage modal
   const relevantMaterialsForSite = useMemo(() => {
     if (!usageData.projectId) return [];
-    return materials.map(mat => {
-      const sitePurchases = mat.history?.filter(h => h.type === 'Purchase' && h.projectId === usageData.projectId) || [];
-      const siteUsages = mat.history?.filter(h => h.type === 'Usage' && h.projectId === usageData.projectId) || [];
-      const totalSitePurchased = sitePurchases.reduce((sum, h) => sum + h.quantity, 0);
-      const totalSiteUsed = siteUsages.reduce((sum, h) => sum + h.quantity, 0);
-      const siteBalance = totalSitePurchased - totalSiteUsed;
-      return { ...mat, siteBalance };
+    const results: any[] = [];
+    materials.forEach(mat => {
+      const allHistory = mat.history || [];
+      const purchaseEntries = allHistory.filter(h => h.type === 'Purchase');
+      if (purchaseEntries.length === 0) return;
+      const vendorIds = Array.from(new Set(purchaseEntries.map(h => h.vendorId).filter(Boolean)));
+      vendorIds.forEach(vid => {
+        const vendor = vendors.find(v => v.id === vid);
+        const vName = vendor?.name || 'Standard Supplier';
+        const sitePurchases = allHistory.filter(h => h.type === 'Purchase' && h.vendorId === vid && h.projectId === usageData.projectId);
+        const siteUsages = allHistory.filter(h => h.type === 'Usage' && h.vendorId === vid && h.projectId === usageData.projectId);
+        const sitePurchasedQty = sitePurchases.reduce((sum, h) => sum + h.quantity, 0);
+        const siteUsedQty = siteUsages.reduce((sum, h) => sum + h.quantity, 0);
+        const netSiteAvailable = sitePurchasedQty - siteUsedQty;
+        const globalPurchased = allHistory.filter(h => h.type === 'Purchase' && h.vendorId === vid).reduce((sum, h) => sum + h.quantity, 0);
+        const globalUsed = allHistory.filter(h => h.type === 'Usage' && h.vendorId === vid).reduce((sum, h) => sum + h.quantity, 0);
+        const netGlobalAvailable = globalPurchased - globalUsed;
+        if (netGlobalAvailable <= 0 && netSiteAvailable <= 0) return;
+        results.push({ ...mat, displayVendorId: vid, displayVendorName: vName, availableQty: netSiteAvailable, globalAvailable: netGlobalAvailable, priority: netSiteAvailable > 0 ? 1 : 0 });
+      });
     });
-  }, [materials, usageData.projectId]);
+    return results.sort((a, b) => {
+      if (a.priority !== b.priority) return b.priority - a.priority;
+      return (b.availableQty || b.globalAvailable) - (a.availableQty || a.globalAvailable);
+    });
+  }, [materials, usageData.projectId, vendors]);
 
-  // Added missing function to handle opening the usage modal with pre-filled data
   const handleOpenUsageModal = (materialId?: string, projectId?: string) => {
-    setUsageData({
-      materialId: materialId || '',
-      projectId: projectId || projects[0]?.id || '',
-      quantity: '',
-      date: new Date().toISOString().split('T')[0],
-      notes: ''
-    });
+    setUsageData({ materialId: materialId || '', vendorId: '', projectId: projectId || projects[0]?.id || '', quantity: '', date: new Date().toISOString().split('T')[0], notes: '' });
     setShowUsageModal(true);
   };
 
-  // Added missing function to handle opening the edit modal for a material
   const handleOpenEditModal = (mat: Material) => {
     setEditingMaterial(mat);
-    setEditFormData({
-      name: mat.name,
-      unit: mat.unit
-    });
+    setEditFormData({ name: mat.name, unit: mat.unit });
     setShowEditModal(true);
   };
 
-  // Added missing function to handle the material edit submission
   const handleEditMaterialSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingMaterial) return;
-    updateMaterial({
-      ...editingMaterial,
-      name: editFormData.name,
-      unit: editFormData.unit as MaterialUnit
-    });
+    updateMaterial({ ...editingMaterial, name: editFormData.name, unit: editFormData.unit as MaterialUnit });
     setShowEditModal(false);
     setEditingMaterial(null);
   };
@@ -150,7 +177,6 @@ export const Inventory: React.FC = () => {
     let result = materials.map(mat => {
       let siteBalance = mat.totalPurchased - mat.totalUsed;
       let hasProjectLink = true;
-
       if (projectFilter !== 'All') {
         const sitePurchases = mat.history?.filter(h => h.type === 'Purchase' && h.projectId === projectFilter) || [];
         const siteUsages = mat.history?.filter(h => h.type === 'Usage' && h.projectId === projectFilter) || [];
@@ -159,17 +185,14 @@ export const Inventory: React.FC = () => {
         siteBalance = totalSitePurchased - totalSiteUsed;
         hasProjectLink = totalSitePurchased > 0;
       }
-
       return { ...mat, siteBalance, hasProjectLink };
     });
-
     result = result.filter(mat => {
       const matchesSearch = mat.name.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesProject = projectFilter === 'All' || mat.hasProjectLink;
       const matchesVendor = vendorFilter === 'All' || mat.history?.some(h => h.vendorId === vendorFilter);
       return matchesSearch && matchesProject && matchesVendor;
     });
-
     return result.sort((a, b) => {
       if (inventorySort === 'name') return a.name.localeCompare(b.name);
       if (inventorySort === 'stock-low') return a.siteBalance - b.siteBalance;
@@ -179,257 +202,139 @@ export const Inventory: React.FC = () => {
     });
   }, [materials, searchTerm, projectFilter, vendorFilter, inventorySort]);
 
-  const totalInventoryValueSum = useMemo(() => {
-    return filteredMaterials.reduce((sum, mat) => sum + (mat.siteBalance * mat.costPerUnit), 0);
-  }, [filteredMaterials]);
-
   const filteredHistory = useMemo(() => {
     if (!historyMaterial || !historyMaterial.history) return [];
-    
     let result = historyMaterial.history.filter(entry => {
-      // Tab filtering
       if (activeHistoryTab === 'purchases' && entry.type !== 'Purchase') return false;
       if (activeHistoryTab === 'usage' && entry.type !== 'Usage') return false;
-
       const projectName = projects.find(p => p.id === entry.projectId)?.name || '';
       const vendorName = vendors.find(v => v.id === entry.vendorId)?.name || '';
       const search = historySearch.toLowerCase();
-      
-      const entryDate = entry.date; // YYYY-MM-DD
-      const formattedDate = new Date(entry.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }).toLowerCase();
-      const qtyStr = entry.quantity.toString();
-      
-      return (
-        entry.note?.toLowerCase().includes(search) ||
-        entry.type.toLowerCase().includes(search) ||
-        projectName.toLowerCase().includes(search) ||
-        vendorName.toLowerCase().includes(search) ||
-        entryDate.includes(search) ||
-        formattedDate.includes(search) ||
-        qtyStr.includes(search)
-      );
+      return (entry.note?.toLowerCase().includes(search) || entry.type.toLowerCase().includes(search) || projectName.toLowerCase().includes(search) || vendorName.toLowerCase().includes(search) || entry.date.includes(search));
     });
-
     return result.sort((a, b) => {
-      if (historySort === 'date-desc') {
-        const timeB = new Date(b.date).getTime();
-        const timeA = new Date(a.date).getTime();
-        if (timeB !== timeA) return timeB - timeA;
-        return b.id.localeCompare(a.id);
-      }
-      if (historySort === 'date-asc') {
-        const timeA = new Date(a.date).getTime();
-        const timeB = new Date(b.date).getTime();
-        if (timeA !== timeB) return timeA - timeB;
-        return a.id.localeCompare(b.id);
-      }
+      const timeB = new Date(b.date).getTime();
+      const timeA = new Date(a.date).getTime();
+      if (historySort === 'date-desc') return timeB - timeA;
+      if (historySort === 'date-asc') return timeA - timeB;
       if (historySort === 'qty-high') return b.quantity - a.quantity;
       if (historySort === 'qty-low') return a.quantity - b.quantity;
       return 0;
     });
   }, [historyMaterial, historySearch, historySort, projects, vendors, activeHistoryTab]);
 
-  const historySummaryStats = useMemo(() => {
-    if (!historyMaterial || !historyMaterial.history) return { inwardValue: 0, usageValue: 0, totalInwardQty: 0, totalUsageQty: 0 };
-    
-    const inward = filteredHistory.filter(h => h.type === 'Purchase');
-    const usage = filteredHistory.filter(h => h.type === 'Usage');
-    
-    const inwardValue = inward.reduce((sum, h) => sum + (h.quantity * (h.unitPrice || historyMaterial.costPerUnit)), 0);
-    const usageValue = usage.reduce((sum, h) => sum + (h.quantity * (h.unitPrice || historyMaterial.costPerUnit)), 0);
-    const totalInwardQty = inward.reduce((sum, h) => sum + h.quantity, 0);
-    const totalUsageQty = usage.reduce((sum, h) => sum + h.quantity, 0);
-
-    return { inwardValue, usageValue, totalInwardQty, totalUsageQty };
-  }, [filteredHistory, historyMaterial]);
-
-  const totalHistoryValueSum = useMemo(() => {
-    if (!historyMaterial) return 0;
-    if (activeHistoryTab === 'purchases') return historySummaryStats.inwardValue;
-    if (activeHistoryTab === 'usage') return historySummaryStats.usageValue;
-    return historySummaryStats.inwardValue - historySummaryStats.usageValue;
-  }, [historySummaryStats, activeHistoryTab, historyMaterial]);
-
-  const handleProcureStock = (e: React.FormEvent) => {
+  const handleProcureStock = async (e: React.FormEvent) => {
     e.preventDefault();
     const qty = parseFloat(procureData.quantity) || 0;
     const unitPrice = parseFloat(procureData.costPerUnit) || 0;
-    const cost = unitPrice * qty;
-
+    const totalAmount = qty * unitPrice;
+    const expenseId = 'e-pro-' + Date.now();
     if (procureData.materialId === 'new') {
       const newId = 'm' + Date.now();
-      addMaterial({
-        id: newId,
-        name: procureData.newName,
-        unit: procureData.unit,
-        costPerUnit: unitPrice,
-        totalPurchased: qty,
-        totalUsed: 0,
-        history: [{
-          id: 'sh' + Date.now(),
-          date: procureData.date,
-          type: 'Purchase',
-          quantity: qty,
-          vendorId: procureData.vendorId,
-          projectId: procureData.projectId,
-          note: `Initial Procurement`,
-          unitPrice: unitPrice
-        }]
-      });
+      await addMaterial({ id: newId, name: procureData.newName, unit: procureData.unit, costPerUnit: unitPrice, totalPurchased: 0, totalUsed: 0, history: [] });
+      await addExpense({ id: expenseId, date: procureData.date, projectId: procureData.projectId, vendorId: procureData.vendorId, amount: totalAmount, paymentMethod: 'Bank', category: 'Material', notes: procureData.note || `Procured ${qty} ${procureData.unit} of ${procureData.newName}`, materialId: newId, materialQuantity: qty, inventoryAction: 'Purchase' });
     } else {
-      const existing = materials.find(m => m.id === procureData.materialId);
-      if (existing) {
-        updateMaterial({
-          ...existing,
-          totalPurchased: existing.totalPurchased + qty,
-          history: [...(existing.history || []), {
-            id: 'sh' + Date.now(),
-            date: procureData.date,
-            type: 'Purchase',
-            quantity: qty,
-            vendorId: procureData.vendorId,
-            projectId: procureData.projectId,
-            note: `Restock Procurement`,
-            unitPrice: unitPrice
-          }]
-        });
-      }
+      await addExpense({ id: expenseId, date: procureData.date, projectId: procureData.projectId, vendorId: procureData.vendorId, amount: totalAmount, paymentMethod: 'Bank', category: 'Material', notes: procureData.note || `Restock Procurement: ${qty} units`, materialId: procureData.materialId, materialQuantity: qty, inventoryAction: 'Purchase' });
     }
-
-    if (procureData.vendorId) {
-      const vendor = vendors.find(v => v.id === procureData.vendorId);
-      if (vendor) {
-        updateVendor({
-          ...vendor,
-          balance: vendor.balance + cost
-        });
-      }
-    }
-
     setShowProcureModal(false);
-    setProcureData({
-      materialId: '', newName: '', vendorId: vendors[0]?.id || '', projectId: projects[0]?.id || '', quantity: '', unit: stockingUnits[0] || 'Bag', costPerUnit: '', date: new Date().toISOString().split('T')[0]
-    });
+    setProcureData({ materialId: '', newName: '', vendorId: vendors[0]?.id || '', projectId: projects[0]?.id || '', quantity: '', unit: stockingUnits[0] || 'Bag', costPerUnit: '', date: new Date().toISOString().split('T')[0], note: '' });
   };
 
-  const handleRecordUsage = (e: React.FormEvent) => {
+  // Bulk Inward Row Handlers
+  const addBulkRow = () => setBulkRows([...bulkRows, { id: Date.now().toString(), materialId: '', quantity: '', unitPrice: '', vendorId: bulkGlobalVendor, projectId: bulkGlobalProject }]);
+  const removeBulkRow = (id: string) => setBulkRows(bulkRows.filter(r => r.id !== id));
+  const updateBulkRow = (id: string, field: keyof BulkRow, value: string) => {
+    setBulkRows(bulkRows.map(r => r.id === id ? { ...r, [field]: value } : r));
+  };
+
+  const handleBulkProcureSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const qty = parseFloat(usageData.quantity) || 0;
-    const target = materials.find(m => m.id === usageData.materialId);
-
-    if (target) {
-      const siteRelevant = relevantMaterialsForSite.find(r => r.id === target.id);
-      if (!siteRelevant || siteRelevant.siteBalance < qty) {
-        alert(`Error: Insufficient stock available at this site. (Available: ${siteRelevant?.siteBalance || 0} ${target.unit})`);
-        return;
-      }
-
-      updateMaterial({
-        ...target,
-        totalUsed: target.totalUsed + qty,
-        history: [...(target.history || []), {
-          id: 'sh' + Date.now(),
-          date: usageData.date,
-          type: 'Usage',
-          quantity: qty,
-          projectId: usageData.projectId,
-          note: usageData.notes || 'Site Consumption',
-          unitPrice: target.costPerUnit
-        }]
-      });
-
-      const consumptionValue = qty * target.costPerUnit;
-      addExpense({
-        id: 'e-usage-' + Date.now(),
-        date: usageData.date,
-        projectId: usageData.projectId,
-        amount: consumptionValue,
-        paymentMethod: 'Bank',
-        category: 'Material',
-        materialId: target.id,
-        notes: `Usage Recorded: ${qty} ${target.unit} of ${target.name}. ${usageData.notes ? `(${usageData.notes})` : ''}`
-      });
-
-      setShowUsageModal(false);
-      setHistoryMaterial(null);
-    } else {
-      alert("Error: Material not found.");
-    }
-  };
-
-  const handleDeleteHistoryEntry = (material: Material, entryId: string) => {
-    if (payments.some(p => p.materialBatchId === entryId)) {
-      alert("Lock Violation: This entry cannot be deleted because settlements (payments) have already been recorded against it in the Supplier Ledger.");
+    const validRows = bulkRows.filter(r => r.materialId && r.quantity && r.unitPrice);
+    if (validRows.length === 0) {
+      alert("No valid rows to process. Ensure Material, Quantity, and Price are filled.");
       return;
     }
 
-    if (!confirm("Recalculate Stock: Delete this log entry? Total inventory levels will be adjusted automatically.")) return;
-    const entry = material.history?.find(h => h.id === entryId);
-    const newHistory = material.history?.filter(h => h.id !== entryId) || [];
-    const totalPurchased = newHistory.filter(h => h.type === 'Purchase').reduce((sum, h) => sum + h.quantity, 0);
-    const totalUsed = newHistory.filter(h => h.type === 'Usage').reduce((sum, h) => sum + h.quantity, 0);
-    
-    if (entry && entry.type === 'Purchase' && entry.vendorId) {
-      const vendor = vendors.find(v => v.id === entry.vendorId);
-      if (vendor) {
-        const cost = entry.quantity * (entry.unitPrice || material.costPerUnit);
-        updateVendor({ ...vendor, balance: vendor.balance - cost });
-      }
+    for (const row of validRows) {
+      const qty = parseFloat(row.quantity);
+      const price = parseFloat(row.unitPrice);
+      const vendorId = row.vendorId || bulkGlobalVendor;
+      const projectId = row.projectId || bulkGlobalProject;
+      const mat = materials.find(m => m.id === row.materialId);
+      
+      if (!vendorId || !projectId) continue;
+
+      await addExpense({
+        id: 'e-bulk-' + Math.random().toString(36).substr(2, 9),
+        date: bulkDate,
+        projectId: projectId,
+        vendorId: vendorId,
+        amount: qty * price,
+        paymentMethod: 'Bank',
+        category: 'Material',
+        materialId: row.materialId,
+        materialQuantity: qty,
+        inventoryAction: 'Purchase',
+        notes: `Bulk Entry: ${qty} ${mat?.unit} inward`
+      });
     }
 
-    const updatedMat = { ...material, totalPurchased, totalUsed, history: newHistory };
-    updateMaterial(updatedMat);
-    setHistoryMaterial(updatedMat);
+    setShowBulkModal(false);
+    setBulkRows([{ id: '1', materialId: '', quantity: '', unitPrice: '', vendorId: '', projectId: '' }]);
   };
 
-  const handleEditHistorySubmit = (e: React.FormEvent) => {
+  const handleRecordUsage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const qty = parseFloat(usageData.quantity) || 0;
+    const target = materials.find(m => m.id === usageData.materialId);
+    const vendorId = usageData.vendorId;
+    if (target && vendorId) {
+      const selection = relevantMaterialsForSite.find(r => r.id === target.id && r.displayVendorId === vendorId);
+      const available = selection ? (selection.availableQty > 0 ? selection.availableQty : selection.globalAvailable) : 0;
+      if (available < qty) {
+        alert(`Error: Insufficient stock. (Available: ${available} ${target.unit})`);
+        return;
+      }
+      const consumptionValue = qty * target.costPerUnit;
+      await addExpense({ id: 'e-usage-' + Date.now(), date: usageData.date, projectId: usageData.projectId, amount: consumptionValue, paymentMethod: 'Bank', category: 'Material', materialId: target.id, vendorId: vendorId, materialQuantity: qty, inventoryAction: 'Usage', notes: usageData.notes || `Usage: ${qty} ${target.unit} of ${target.name}` });
+      setShowUsageModal(false);
+    } else {
+      alert("Error: Please select material stream.");
+    }
+  };
+
+  const handleDeleteHistoryEntry = async (material: Material, entryId: string) => {
+    if (payments.some(p => p.materialBatchId === entryId)) { alert("Lock Violation: This entry is linked to payments in the Supplier Ledger."); return; }
+    const expenseId = entryId.startsWith('sh-exp-') ? entryId.replace('sh-exp-', '') : null;
+    if (!confirm("Confirm Sync: This will delete the financial expense and revert material stock. Continue?")) return;
+    if (expenseId) { await deleteExpense(expenseId); const updated = materials.find(m => m.id === material.id); if (updated) setHistoryMaterial(updated); }
+    else { const newHistory = material.history?.filter(h => h.id !== entryId) || []; const totalPurchased = newHistory.filter(h => h.type === 'Purchase').reduce((sum, h) => sum + h.quantity, 0); const totalUsed = newHistory.filter(h => h.type === 'Usage').reduce((sum, h) => sum + h.quantity, 0); updateMaterial({ ...material, totalPurchased, totalUsed, history: newHistory }); setHistoryMaterial({ ...material, totalPurchased, totalUsed, history: newHistory }); }
+  };
+
+  const handleEditHistorySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingHistoryEntry) return;
-
     const { material, entry: oldEntry } = editingHistoryEntry;
     const newQty = parseFloat(historyEditFormData.quantity) || 0;
     const newPrice = parseFloat(historyEditFormData.unitPrice) || 0;
-    
-    if (oldEntry.type === 'Purchase') {
-      if (oldEntry.vendorId) {
-        const oldVendor = vendors.find(v => v.id === oldEntry.vendorId);
-        if (oldVendor) {
-          const oldCost = oldEntry.quantity * (oldEntry.unitPrice || material.costPerUnit);
-          updateVendor({ ...oldVendor, balance: oldVendor.balance - oldCost });
-        }
+    const expenseId = oldEntry.id.startsWith('sh-exp-') ? oldEntry.id.replace('sh-exp-', '') : null;
+    if (expenseId) {
+      const oldExp = expenses.find(x => x.id === expenseId);
+      if (oldExp) {
+        await updateExpense({ ...oldExp, date: historyEditFormData.date, projectId: historyEditFormData.projectId || oldExp.projectId, vendorId: historyEditFormData.vendorId || oldExp.vendorId, amount: newQty * (oldExp.inventoryAction === 'Usage' ? material.costPerUnit : newPrice), materialId: material.id, materialQuantity: newQty, notes: historyEditFormData.note });
+        const updated = materials.find(m => m.id === material.id);
+        if (updated) setHistoryMaterial(updated);
       }
-      
-      const newVendorId = historyEditFormData.vendorId;
-      if (newVendorId) {
-        const newVendor = vendors.find(v => v.id === newVendorId);
-        if (newVendor) {
-          const newCost = newQty * newPrice;
-          updateVendor({ ...newVendor, balance: newVendor.balance + newCost });
-        }
-      }
+    } else {
+      const newHistory = material.history?.map(h => {
+        if (h.id === oldEntry.id) { return { ...h, quantity: newQty, unitPrice: newPrice, projectId: historyEditFormData.projectId || undefined, vendorId: historyEditFormData.vendorId || undefined, date: historyEditFormData.date, note: historyEditFormData.note }; }
+        return h;
+      }) || [];
+      const totalPurchased = newHistory.filter(h => h.type === 'Purchase').reduce((sum, h) => sum + h.quantity, 0);
+      const totalUsed = newHistory.filter(h => h.type === 'Usage').reduce((sum, h) => sum + h.quantity, 0);
+      updateMaterial({ ...material, totalPurchased, totalUsed, history: newHistory });
+      setHistoryMaterial({ ...material, totalPurchased, totalUsed, history: newHistory });
     }
-
-    const newHistory = material.history?.map(h => {
-      if (h.id === oldEntry.id) {
-        return {
-          ...h,
-          quantity: newQty,
-          unitPrice: newPrice,
-          projectId: historyEditFormData.projectId || undefined,
-          vendorId: historyEditFormData.vendorId || undefined,
-          date: historyEditFormData.date,
-          note: historyEditFormData.note
-        };
-      }
-      return h;
-    }) || [];
-
-    const totalPurchased = newHistory.filter(h => h.type === 'Purchase').reduce((sum, h) => sum + h.quantity, 0);
-    const totalUsed = newHistory.filter(h => h.type === 'Usage').reduce((sum, h) => sum + h.quantity, 0);
-
-    const updatedMat = { ...material, totalPurchased, totalUsed, history: newHistory };
-    updateMaterial(updatedMat);
-    setHistoryMaterial(updatedMat);
     setShowEditHistoryModal(false);
     setEditingHistoryEntry(null);
   };
@@ -439,11 +344,12 @@ export const Inventory: React.FC = () => {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h2 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight uppercase">Inventory Ledger</h2>
-          <p className="text-slate-500 dark:text-slate-400 text-sm font-medium">Manage master assets, monitor levels, and track site consumption.</p>
+          <p className="text-slate-500 dark:text-slate-400 text-sm font-medium">Manage assets with automated financial & budget synchronization.</p>
         </div>
-        <div className="grid grid-cols-2 gap-3 w-full sm:w-auto">
-          <button onClick={() => setShowProcureModal(true)} className="bg-slate-900 dark:bg-slate-800 text-white px-5 py-3 rounded-2xl font-bold flex items-center justify-center gap-2 active:scale-95 transition-all shadow-xl shadow-slate-200 dark:shadow-none"><Plus size={18} /> Procure</button>
-          <button onClick={() => handleOpenUsageModal()} className="bg-blue-600 text-white px-5 py-3 rounded-2xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-blue-100 active:scale-95 transition-all"><TrendingDown size={18} /> Use Stock</button>
+        <div className="flex flex-wrap gap-3 w-full sm:w-auto">
+          <button onClick={() => setShowBulkModal(true)} className="flex-1 sm:flex-none bg-emerald-600 text-white px-5 py-3 rounded-2xl font-bold flex items-center justify-center gap-2 active:scale-95 transition-all shadow-xl"><Layers size={18} /> Bulk Inward</button>
+          <button onClick={() => setShowProcureModal(true)} className="flex-1 sm:flex-none bg-slate-900 dark:bg-slate-800 text-white px-5 py-3 rounded-2xl font-bold flex items-center justify-center gap-2 active:scale-95 transition-all shadow-xl"><Plus size={18} /> Procure</button>
+          <button onClick={() => handleOpenUsageModal()} className="flex-1 sm:flex-none bg-blue-600 text-white px-5 py-3 rounded-2xl font-bold flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all"><TrendingDown size={18} /> Record Consumption</button>
         </div>
       </div>
 
@@ -455,22 +361,14 @@ export const Inventory: React.FC = () => {
         <div className="flex flex-wrap gap-2">
           <div className="relative">
              <Briefcase className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
-             <select 
-               className="pl-10 pr-8 py-3.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl text-[10px] font-black uppercase tracking-widest outline-none appearance-none dark:text-white"
-               value={projectFilter}
-               onChange={(e) => setProjectFilter(e.target.value)}
-             >
+             <select className="pl-10 pr-8 py-3.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl text-[10px] font-black uppercase tracking-widest outline-none appearance-none dark:text-white" value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)}>
                 <option value="All">Site Filter: All</option>
                 {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
              </select>
           </div>
           <div className="relative">
              <Filter className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
-             <select 
-               className="pl-10 pr-8 py-3.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl text-[10px] font-black uppercase tracking-widest outline-none appearance-none dark:text-white"
-               value={inventorySort}
-               onChange={(e) => setInventorySort(e.target.value as InventorySortOption)}
-             >
+             <select className="pl-10 pr-8 py-3.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl text-[10px] font-black uppercase tracking-widest outline-none appearance-none dark:text-white" value={inventorySort} onChange={(e) => setInventorySort(e.target.value as InventorySortOption)}>
                 <option value="name">Sort: A-Z</option>
                 <option value="stock-low">Sort: Stock Low</option>
                 <option value="stock-high">Sort: Stock High</option>
@@ -495,7 +393,6 @@ export const Inventory: React.FC = () => {
               {filteredMaterials.map((mat) => {
                 const remaining = mat.siteBalance;
                 const isProjectFiltered = projectFilter !== 'All';
-                
                 return (
                   <tr key={mat.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/50 transition-colors group">
                     <td className="px-8 py-5">
@@ -507,30 +404,12 @@ export const Inventory: React.FC = () => {
                         </div>
                       </div>
                     </td>
-                    <td className="px-8 py-5 text-xs font-black text-slate-600 dark:text-slate-400">
-                      {formatCurrency(remaining * mat.costPerUnit)}
-                    </td>
-                    <td className="px-8 py-5">
-                       <span className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 ${remaining < 10 ? 'bg-red-50 text-red-600 border-red-100 dark:bg-red-900/10 dark:border-red-900/20' : 'bg-emerald-50 text-emerald-600 border-emerald-100 dark:bg-emerald-900/20 dark:border-emerald-800'}`}>
-                         {remaining.toLocaleString()} {mat.unit}s {isProjectFiltered ? 'at Site' : 'Global'}
-                       </span>
-                    </td>
+                    <td className="px-8 py-5 text-xs font-black text-slate-600 dark:text-slate-400">{formatCurrency(remaining * mat.costPerUnit)}</td>
+                    <td className="px-8 py-5"><span className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 ${remaining < 10 ? 'bg-red-50 text-red-600 border-red-100 dark:bg-red-900/10 dark:border-red-900/20' : 'bg-emerald-50 text-emerald-600 border-emerald-100 dark:bg-emerald-900/20 dark:border-emerald-800'}`}>{remaining.toLocaleString()} {mat.unit}s {isProjectFiltered ? 'at Site' : 'Global'}</span></td>
                     <td className="px-8 py-5 text-right">
                        <div className="flex justify-end gap-2 items-center">
-                         <button 
-                           onClick={() => handleOpenUsageModal(mat.id, isProjectFiltered ? projectFilter : undefined)} 
-                           className={`px-4 py-2.5 text-[10px] font-black uppercase tracking-widest rounded-2xl transition-all shadow-sm flex items-center gap-2 ${isProjectFiltered ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-blue-50 text-blue-600 dark:bg-blue-900/20 hover:bg-blue-600 hover:text-white'}`}
-                           title="Quick Usage"
-                         >
-                           <TrendingDown size={14} /> {isProjectFiltered ? 'Use on Site' : 'Quick Usage'}
-                         </button>
-                         <button 
-                          onClick={() => { setHistoryMaterial(mat); setHistorySearch(''); setHistorySort('date-desc'); setActiveHistoryTab('all'); }} 
-                          className="p-3 text-slate-400 bg-slate-50 dark:bg-slate-700/50 rounded-2xl hover:text-slate-900 dark:hover:text-white transition-all shadow-sm" 
-                          title="View Logs"
-                         >
-                           <History size={18} />
-                         </button>
+                         <button onClick={() => handleOpenUsageModal(mat.id, isProjectFiltered ? projectFilter : undefined)} className={`px-4 py-2.5 text-[10px] font-black uppercase tracking-widest rounded-2xl transition-all shadow-sm flex items-center gap-2 ${isProjectFiltered ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-blue-50 text-blue-600 dark:bg-blue-900/20 hover:bg-blue-600 hover:text-white'}`} title="Record Consumption"><TrendingDown size={14} /> {isProjectFiltered ? 'Record Use on Site' : 'Record Consumption'}</button>
+                         <button onClick={() => { setHistoryMaterial(mat); setHistorySearch(''); setHistorySort('date-desc'); setActiveHistoryTab('all'); }} className="p-3 text-slate-400 bg-slate-50 dark:bg-slate-700/50 rounded-2xl hover:text-slate-900 dark:hover:text-white transition-all shadow-sm" title="View Logs"><History size={20} /></button>
                          <button onClick={() => handleOpenEditModal(mat)} className="p-3 text-slate-400 hover:text-blue-600 transition-colors"><Pencil size={18} /></button>
                          <button onClick={() => { if(confirm(`Permanent Action: Are you sure you want to delete ${mat.name}?`)) deleteMaterial(mat.id); }} className="p-3 text-slate-300 hover:text-red-600 transition-colors"><Trash2 size={18} /></button>
                        </div>
@@ -543,228 +422,106 @@ export const Inventory: React.FC = () => {
         </div>
       </div>
 
-      {/* History Modal */}
-      {historyMaterial && (
+      {/* Bulk Stock Inward Modal */}
+      {showBulkModal && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
-          <div className="bg-white dark:bg-slate-800 rounded-[3rem] w-full max-w-6xl h-[90vh] shadow-2xl overflow-hidden flex flex-col mobile-sheet animate-in slide-in-from-bottom-8 duration-300">
-            <div className="p-8 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-white dark:bg-slate-800 shrink-0">
+          <div className="bg-white dark:bg-slate-800 rounded-[3rem] w-full max-w-6xl h-[90vh] shadow-2xl overflow-hidden flex flex-col mobile-sheet animate-in zoom-in-95 duration-200">
+            <div className="p-8 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-emerald-50/30 dark:bg-emerald-900/10 shrink-0">
                <div className="flex gap-4 items-center">
-                 <div className="w-14 h-14 bg-slate-900 dark:bg-slate-700 text-white rounded-[1.5rem] flex items-center justify-center font-black text-2xl shadow-xl">{historyMaterial.name.charAt(0)}</div>
+                 <div className="p-4 bg-emerald-600 text-white rounded-[1.5rem] shadow-xl">
+                    <Layers size={28} />
+                 </div>
                  <div>
-                    <h2 className="text-2xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">Stock Activity History</h2>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{historyMaterial.name} Ledger • Current Stock: {(historyMaterial.totalPurchased - historyMaterial.totalUsed).toLocaleString()} {historyMaterial.unit}s</p>
+                    <h2 className="text-2xl font-black text-slate-900 dark:text-white uppercase tracking-tighter leading-none">Bulk Stock Inward</h2>
+                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Multi-site & Multi-vendor procurement log</p>
                  </div>
                </div>
-               <button onClick={() => setHistoryMaterial(null)} className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"><X size={36} /></button>
+               <button onClick={() => setShowBulkModal(false)} className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"><X size={36} /></button>
             </div>
 
-            <div className="flex bg-slate-50/50 dark:bg-slate-900/20 border-b border-slate-100 dark:border-slate-700 px-8 shrink-0">
-               <button 
-                onClick={() => setActiveHistoryTab('all')} 
-                className={`px-6 py-4 text-[10px] font-black uppercase tracking-widest border-b-4 transition-all flex items-center gap-2 ${activeHistoryTab === 'all' ? 'border-slate-900 text-slate-900 dark:border-white dark:text-white' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
-               >
-                 <ClipboardList size={14} /> Full Log
-               </button>
-               <button 
-                onClick={() => setActiveHistoryTab('purchases')} 
-                className={`px-6 py-4 text-[10px] font-black uppercase tracking-widest border-b-4 transition-all flex items-center gap-2 ${activeHistoryTab === 'purchases' ? 'border-emerald-600 text-emerald-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
-               >
-                 <ShoppingCart size={14} /> Inward (Procurement)
-               </button>
-               <button 
-                onClick={() => setActiveHistoryTab('usage')} 
-                className={`px-6 py-4 text-[10px] font-black uppercase tracking-widest border-b-4 transition-all flex items-center gap-2 ${activeHistoryTab === 'usage' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
-               >
-                 <TrendingDown size={14} /> Usage History
-               </button>
-            </div>
-
-            <div className="px-8 py-4 bg-slate-50 dark:bg-slate-900/50 border-b border-slate-100 dark:border-slate-700 flex flex-col sm:flex-row gap-4 items-center shrink-0">
-               <div className="relative flex-1 w-full">
-                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                  <input 
-                    type="text" 
-                    placeholder="Filter by Date, Qty, Site, Vendor or Notes..." 
-                    className="w-full pl-11 pr-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold dark:text-white outline-none focus:ring-2 focus:ring-blue-500 shadow-sm"
-                    value={historySearch}
-                    onChange={(e) => setHistorySearch(e.target.value)}
-                  />
+            <div className="p-6 bg-slate-50/50 dark:bg-slate-900/20 border-b border-slate-100 dark:border-slate-700 flex flex-wrap gap-6 shrink-0">
+               <div className="space-y-1.5 flex-1 min-w-[200px]">
+                  <label className="text-[9px] font-black text-slate-400 uppercase px-1">Global Date</label>
+                  <input type="date" className="w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold dark:text-white" value={bulkDate} onChange={e => setBulkDate(e.target.value)} />
+               </div>
+               <div className="space-y-1.5 flex-1 min-w-[200px]">
+                  <label className="text-[9px] font-black text-slate-400 uppercase px-1">Global Vendor (Auto-Fill)</label>
+                  <select className="w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold dark:text-white" value={bulkGlobalVendor} onChange={e => { setBulkGlobalVendor(e.target.value); setBulkRows(bulkRows.map(r => ({ ...r, vendorId: e.target.value }))); }}>
+                    <option value="">None</option>
+                    {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                  </select>
+               </div>
+               <div className="space-y-1.5 flex-1 min-w-[200px]">
+                  <label className="text-[9px] font-black text-slate-400 uppercase px-1">Global Project (Auto-Fill)</label>
+                  <select className="w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold dark:text-white" value={bulkGlobalProject} onChange={e => { setBulkGlobalProject(e.target.value); setBulkRows(bulkRows.map(r => ({ ...r, projectId: e.target.value }))); }}>
+                    <option value="">None</option>
+                    {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
                </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 sm:p-8 bg-slate-50/20 dark:bg-slate-900/10 no-scrollbar">
-               <div className="bg-white dark:bg-slate-800 rounded-[2rem] border border-slate-200 dark:border-slate-700 overflow-hidden shadow-sm">
-                 <div className="overflow-x-auto no-scrollbar">
-                    <table className="w-full text-left min-w-[850px]">
-                      <thead className="bg-slate-50 dark:bg-slate-900 text-[10px] font-black text-slate-400 uppercase border-b border-slate-100 dark:border-slate-700">
-                        <tr>
-                          <th className="px-8 py-5">Value Date</th>
-                          <th className="px-8 py-5">Activity Details</th>
-                          <th className="px-8 py-5">Quantity Change</th>
-                          <th className="px-8 py-5 text-right">Unit Price</th>
-                          <th className="px-8 py-5 text-right">Total Value</th>
-                          <th className="px-8 py-5">Site Allocation / Supplier</th>
-                          <th className="px-8 py-5 text-right">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-                        {filteredHistory.map((entry) => {
-                          const project = projects.find(p => p.id === entry.projectId);
-                          const vendor = vendors.find(v => v.id === entry.vendorId);
-                          const isLocked = payments.some(p => p.materialBatchId === entry.id);
-                          
-                          return (
-                            <tr key={entry.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/50 transition-colors group">
-                              <td className="px-8 py-5 text-xs font-bold text-slate-500 dark:text-slate-400">{new Date(entry.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
-                              <td className="px-8 py-5">
-                                <div className="flex items-center gap-2">
-                                  {entry.type === 'Purchase' ? (
-                                    <div className="p-1.5 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg text-emerald-600">
-                                      <ShoppingCart size={12} />
-                                    </div>
-                                  ) : (
-                                    <div className="p-1.5 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-blue-600">
-                                      <TrendingDown size={12} />
-                                    </div>
-                                  )}
-                                  <span className={`text-[10px] font-black uppercase tracking-widest ${entry.type === 'Purchase' ? 'text-emerald-600' : 'text-blue-600'}`}>{entry.type}</span>
-                                  {isLocked && <Lock size={10} className="text-amber-500" title="Locked due to payment" />}
-                                </div>
-                                <p className="text-[11px] text-slate-700 dark:text-slate-300 font-semibold mt-1">{entry.note}</p>
-                              </td>
-                              <td className="px-8 py-5">
-                                <span className={`text-sm font-black ${entry.type === 'Purchase' ? 'text-emerald-600' : 'text-blue-600'}`}>
-                                  {entry.type === 'Purchase' ? '+' : '-'}{entry.quantity.toLocaleString()} {historyMaterial.unit}
-                                </span>
-                              </td>
-                              <td className="px-8 py-5 text-right font-bold text-slate-600 dark:text-slate-400">
-                                {formatCurrency(entry.unitPrice || historyMaterial.costPerUnit)}
-                              </td>
-                              <td className="px-8 py-5 text-right font-black text-slate-800 dark:text-slate-200">
-                                {formatCurrency(entry.quantity * (entry.unitPrice || historyMaterial.costPerUnit))}
-                              </td>
-                              <td className="px-8 py-5">
-                                <div className="flex flex-col gap-1">
-                                  {project && <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-tight flex items-center gap-1"><Briefcase size={12} className="text-blue-500"/> {project.name}</span>}
-                                  {vendor && <span className="text-[11px] font-black text-slate-800 dark:text-slate-200 uppercase tracking-tighter flex items-center gap-1"><Users size={12} className="text-emerald-500"/> {vendor.name}</span>}
-                                </div>
-                              </td>
-                              <td className="px-8 py-5 text-right">
-                                <div className="flex justify-end gap-1">
-                                  <button 
-                                    onClick={() => {
-                                      setEditingHistoryEntry({ material: historyMaterial, entry });
-                                      setHistoryEditFormData({
-                                        quantity: entry.quantity.toString(),
-                                        unitPrice: (entry.unitPrice || historyMaterial.costPerUnit).toString(),
-                                        projectId: entry.projectId || '',
-                                        vendorId: entry.vendorId || '',
-                                        date: entry.date,
-                                        note: entry.note || ''
-                                      });
-                                      setShowEditHistoryModal(true);
-                                    }}
-                                    className="p-2 text-slate-300 hover:text-blue-600 transition-colors"
-                                  >
-                                    <Pencil size={16} />
-                                  </button>
-                                  <button onClick={() => handleDeleteHistoryEntry(historyMaterial, entry.id)} className="p-2 text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={16} /></button>
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                 </div>
+            <div className="flex-1 overflow-y-auto p-8 no-scrollbar bg-white dark:bg-slate-800">
+               <div className="space-y-4">
+                  {bulkRows.map((row, index) => (
+                    <div key={row.id} className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end p-4 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-700 animate-in slide-in-from-left-2 transition-all">
+                       <div className="md:col-span-1 flex items-center justify-center h-10">
+                          <span className="text-xs font-black text-slate-300">#{index + 1}</span>
+                       </div>
+                       <div className="md:col-span-3 space-y-1">
+                          <label className="text-[8px] font-black text-slate-400 uppercase px-1">Material Asset</label>
+                          <select className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 rounded-lg text-xs font-bold dark:text-white" value={row.materialId} onChange={e => updateBulkRow(row.id, 'materialId', e.target.value)}>
+                             <option value="">Choose asset...</option>
+                             {materials.map(m => <option key={m.id} value={m.id}>{m.name} ({m.unit})</option>)}
+                          </select>
+                       </div>
+                       <div className="md:col-span-2 space-y-1">
+                          <label className="text-[8px] font-black text-slate-400 uppercase px-1">Quantity</label>
+                          <input type="number" step="0.01" className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 rounded-lg text-xs font-bold dark:text-white" value={row.quantity} onChange={e => updateBulkRow(row.id, 'quantity', e.target.value)} placeholder="0.00" />
+                       </div>
+                       <div className="md:col-span-2 space-y-1">
+                          <label className="text-[8px] font-black text-slate-400 uppercase px-1">Unit Price</label>
+                          <input type="number" step="0.01" className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 rounded-lg text-xs font-bold dark:text-white" value={row.unitPrice} onChange={e => updateBulkRow(row.id, 'unitPrice', e.target.value)} placeholder="0.00" />
+                       </div>
+                       {!bulkGlobalVendor && (
+                          <div className="md:col-span-2 space-y-1">
+                            <label className="text-[8px] font-black text-slate-400 uppercase px-1">Vendor</label>
+                            <select className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 rounded-lg text-xs font-bold dark:text-white" value={row.vendorId} onChange={e => updateBulkRow(row.id, 'vendorId', e.target.value)}>
+                               <option value="">Select Vendor...</option>
+                               {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                            </select>
+                          </div>
+                       )}
+                       {!bulkGlobalProject && (
+                          <div className="md:col-span-2 space-y-1">
+                            <label className="text-[8px] font-black text-slate-400 uppercase px-1">Site</label>
+                            <select className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 rounded-lg text-xs font-bold dark:text-white" value={row.projectId} onChange={e => updateBulkRow(row.id, 'projectId', e.target.value)}>
+                               <option value="">Select Site...</option>
+                               {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                            </select>
+                          </div>
+                       )}
+                       <div className="md:col-span-1 flex items-center justify-end">
+                          <button onClick={() => removeBulkRow(row.id)} className="p-2 text-slate-400 hover:text-red-500 transition-colors"><Trash2 size={16} /></button>
+                       </div>
+                    </div>
+                  ))}
+               </div>
+               <button onClick={addBulkRow} className="mt-6 flex items-center gap-2 px-6 py-3 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-2xl text-[10px] font-black uppercase hover:bg-slate-200 transition-all border-2 border-dashed border-slate-200 dark:border-slate-600 w-full justify-center"><Plus size={16} /> Add New Entry Row</button>
+            </div>
+
+            <div className="p-8 border-t border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800 flex flex-col sm:flex-row justify-between items-center gap-4 shrink-0">
+               <div className="text-left">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Current Batch Impact</p>
+                  <p className="text-xl font-black text-emerald-600">
+                    {formatCurrency(bulkRows.reduce((sum, r) => sum + ((parseFloat(r.quantity) || 0) * (parseFloat(r.unitPrice) || 0)), 0))}
+                  </p>
+               </div>
+               <div className="flex gap-4 w-full sm:w-auto">
+                  <button onClick={() => setShowBulkModal(false)} className="flex-1 sm:flex-none px-10 py-4 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400 font-black rounded-2xl text-xs uppercase tracking-widest">Cancel</button>
+                  <button onClick={handleBulkProcureSubmit} className="flex-1 sm:flex-none px-10 py-4 bg-emerald-600 text-white font-black rounded-2xl text-xs uppercase tracking-widest shadow-xl shadow-emerald-100 dark:shadow-none active:scale-95 transition-all">Process Bulk Inward</button>
                </div>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* Edit History Modal */}
-      {showEditHistoryModal && editingHistoryEntry && (
-        <div className="fixed inset-0 z-[160] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
-           <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-w-xl shadow-2xl overflow-hidden mobile-sheet animate-in slide-in-from-bottom-8 duration-300">
-              <div className="p-8 border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 flex justify-between items-center shrink-0">
-                 <div className="flex items-center gap-3">
-                   <h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">Edit Activity Log</h2>
-                   {isHistoryEntryLocked && (
-                     <div className="px-3 py-1 bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-900/50 rounded-lg flex items-center gap-2">
-                        <Lock size={12} className="text-amber-600" />
-                        <span className="text-[10px] font-black text-amber-700 dark:text-amber-400 uppercase tracking-widest">Financial Lock Active</span>
-                     </div>
-                   )}
-                 </div>
-                 <button onClick={() => setShowEditHistoryModal(false)} className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"><X size={32} /></button>
-              </div>
-              <form onSubmit={handleEditHistorySubmit} className="p-8 space-y-5 overflow-y-auto no-scrollbar max-h-[75vh] pb-safe">
-                 {isHistoryEntryLocked && (
-                   <div className="bg-amber-50 dark:bg-amber-900/20 p-4 rounded-2xl border border-amber-100 dark:border-amber-900/30 flex items-start gap-3">
-                      <Info size={18} className="text-amber-600 shrink-0 mt-0.5" />
-                      <p className="text-[11px] font-bold text-amber-800 dark:text-amber-200 leading-relaxed">
-                        This procurement record is locked because one or more settlements (payments) have already been recorded against it in the Supplier Ledger. To change the price or quantity, you must first delete the linked settlements from the Vendor's history.
-                      </p>
-                   </div>
-                 )}
-                 <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1.5">
-                       <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Quantity</label>
-                       <input 
-                        type="number" 
-                        step="0.01" 
-                        required 
-                        disabled={isHistoryEntryLocked}
-                        className={`w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white ${isHistoryEntryLocked ? 'opacity-50 cursor-not-allowed' : ''}`} 
-                        value={historyEditFormData.quantity} 
-                        onChange={e => setHistoryEditFormData(p => ({ ...p, quantity: e.target.value }))} 
-                       />
-                    </div>
-                    <div className="space-y-1.5">
-                       <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Unit Price (Rs.)</label>
-                       <input 
-                        type="number" 
-                        step="0.01" 
-                        required 
-                        disabled={isHistoryEntryLocked}
-                        className={`w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white ${isHistoryEntryLocked ? 'opacity-50 cursor-not-allowed' : ''}`} 
-                        value={historyEditFormData.unitPrice} 
-                        onChange={e => setHistoryEditFormData(p => ({ ...p, unitPrice: e.target.value }))} 
-                       />
-                    </div>
-                 </div>
-                 <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1.5">
-                       <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Site</label>
-                       <select className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white" value={historyEditFormData.projectId} onChange={e => setHistoryEditFormData(p => ({ ...p, projectId: e.target.value }))}>
-                          <option value="">No Site</option>
-                          {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                       </select>
-                    </div>
-                    <div className="space-y-1.5">
-                       <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Date</label>
-                       <input type="date" required className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white" value={historyEditFormData.date} onChange={e => setHistoryEditFormData(p => ({ ...p, date: e.target.value }))} />
-                    </div>
-                 </div>
-                 {editingHistoryEntry.entry.type === 'Purchase' && (
-                    <div className="space-y-1.5">
-                       <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Supplier</label>
-                       <select className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white" value={historyEditFormData.vendorId} onChange={e => setHistoryEditFormData(p => ({ ...p, vendorId: e.target.value }))}>
-                          <option value="">No Vendor</option>
-                          {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                       </select>
-                    </div>
-                 )}
-                 <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Note</label>
-                    <textarea rows={2} className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={historyEditFormData.note} onChange={e => setHistoryEditFormData(p => ({ ...p, note: e.target.value }))} />
-                 </div>
-                 <div className="flex gap-4 pt-6">
-                    <button type="button" onClick={() => setShowEditHistoryModal(false)} className="flex-1 bg-slate-100 dark:bg-slate-700 py-4 rounded-[1.5rem] font-bold text-sm uppercase tracking-widest text-slate-500">Cancel</button>
-                    <button type="submit" className="flex-1 bg-blue-600 text-white py-4 rounded-[1.5rem] font-black shadow-2xl transition-all active:scale-95 text-sm uppercase tracking-widest">Save Changes</button>
-                 </div>
-              </form>
-           </div>
         </div>
       )}
 
@@ -779,10 +536,10 @@ export const Inventory: React.FC = () => {
                    </div>
                    <div>
                       <h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">Stock Procurement</h2>
-                      <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Record inward material supply</p>
+                      <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Record inward material and update budget</p>
                    </div>
                  </div>
-                 <button onClick={() => setShowProcureModal(false)} className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white"><X size={32} /></button>
+                 <button onClick={() => setShowProcureModal(false)} className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"><X size={32} /></button>
               </div>
               <form onSubmit={handleProcureStock} className="p-8 space-y-5 overflow-y-auto no-scrollbar max-h-[75vh] pb-safe">
                 <div className="space-y-1.5">
@@ -846,19 +603,10 @@ export const Inventory: React.FC = () => {
                    </div>
                 </div>
 
-                {procureData.quantity && procureData.costPerUnit && (
-                  <div className="bg-slate-900 p-6 rounded-3xl text-white flex justify-between items-center shadow-2xl animate-in slide-in-from-top-2">
-                     <div>
-                        <p className="text-[9px] font-black text-white/50 uppercase tracking-widest mb-1">Total Bill Value</p>
-                        <p className="text-2xl font-black text-blue-400">{formatCurrency((parseFloat(procureData.quantity) || 0) * (parseFloat(procureData.costPerUnit) || 0))}</p>
-                     </div>
-                     <ArrowRight size={24} className="text-white/20" />
-                     <div className="text-right">
-                        <p className="text-[9px] font-black text-emerald-400 uppercase tracking-widest mb-1">Impact on Balances</p>
-                        <p className="text-sm font-bold text-emerald-500 flex items-center justify-end gap-1"><ArrowUpDown size={14} /> Vendor & Stock</p>
-                     </div>
-                  </div>
-                )}
+                <div className="space-y-1.5">
+                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Activity Note</label>
+                   <textarea rows={2} className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={procureData.note} onChange={e => setProcureData(p => ({ ...p, note: e.target.value }))} placeholder="Arrival details..." />
+                </div>
 
                 <div className="flex gap-4 pt-6">
                    <button type="button" onClick={() => setShowProcureModal(false)} className="flex-1 bg-slate-100 dark:bg-slate-700 py-4 rounded-[1.5rem] font-bold text-sm uppercase tracking-widest text-slate-500">Discard</button>
@@ -869,80 +617,148 @@ export const Inventory: React.FC = () => {
         </div>
       )}
 
-      {/* Usage Modal */}
-      {showUsageModal && (
+      {/* History Modal */}
+      {historyMaterial && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
-           <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-xl shadow-2xl overflow-hidden mobile-sheet animate-in slide-in-from-bottom-8 duration-300">
-              <div className="p-8 border-b border-slate-100 dark:border-slate-700 bg-blue-50/30 dark:bg-blue-900/20 flex justify-between items-center shrink-0">
-                 <div className="flex gap-4 items-center">
-                    <div className="p-4 bg-blue-600 text-white rounded-2xl shadow-lg">
-                       <TrendingDown size={24} />
-                    </div>
-                    <div>
-                       <h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">Record Consumption</h2>
-                       <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Deduct from site inventory</p>
-                    </div>
+          <div className="bg-white dark:bg-slate-800 rounded-[3rem] w-full max-w-6xl h-[90vh] shadow-2xl overflow-hidden flex flex-col mobile-sheet animate-in slide-in-from-bottom-8 duration-300">
+            <div className="p-8 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-white dark:bg-slate-800 shrink-0">
+               <div className="flex gap-4 items-center">
+                 <div className="w-14 h-14 bg-slate-900 dark:bg-slate-700 text-white rounded-[1.5rem] flex items-center justify-center font-black text-2xl shadow-xl">{historyMaterial.name.charAt(0)}</div>
+                 <div>
+                    <h2 className="text-2xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">Stock Activity History</h2>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{historyMaterial.name} Ledger • Current Stock: {(historyMaterial.totalPurchased - historyMaterial.totalUsed).toLocaleString()} {historyMaterial.unit}s</p>
                  </div>
-                 <button onClick={() => setShowUsageModal(false)} className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white"><X size={32} /></button>
+               </div>
+               <button onClick={() => setHistoryMaterial(null)} className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"><X size={36} /></button>
+            </div>
+
+            <div className="flex bg-slate-50/50 dark:bg-slate-900/20 border-b border-slate-100 dark:border-slate-700 px-8 shrink-0">
+               <button onClick={() => setActiveHistoryTab('all')} className={`px-6 py-4 text-[10px] font-black uppercase tracking-widest border-b-4 transition-all flex items-center gap-2 ${activeHistoryTab === 'all' ? 'border-slate-900 text-slate-900 dark:border-white dark:text-white' : 'border-transparent text-slate-400 hover:text-slate-600'}`}><ClipboardList size={14} /> Full Log</button>
+               <button onClick={() => setActiveHistoryTab('purchases')} className={`px-6 py-4 text-[10px] font-black uppercase tracking-widest border-b-4 transition-all flex items-center gap-2 ${activeHistoryTab === 'purchases' ? 'border-emerald-600 text-emerald-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}><ShoppingCart size={14} /> Inward (Procurement)</button>
+               <button onClick={() => setActiveHistoryTab('usage')} className={`px-6 py-4 text-[10px] font-black uppercase tracking-widest border-b-4 transition-all flex items-center gap-2 ${activeHistoryTab === 'usage' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}><TrendingDown size={14} /> Usage History</button>
+            </div>
+
+            <div className="px-8 py-4 bg-slate-50 dark:bg-slate-900/50 border-b border-slate-100 dark:border-slate-700 flex flex-col sm:flex-row gap-4 items-center shrink-0">
+               <div className="relative flex-1 w-full">
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                  <input type="text" placeholder="Filter by Date, Qty, Site, Vendor or Notes..." className="w-full pl-11 pr-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold dark:text-white outline-none focus:ring-2 focus:ring-blue-500 shadow-sm" value={historySearch} onChange={(e) => setHistorySearch(e.target.value)} />
+               </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 sm:p-8 bg-slate-50/20 dark:bg-slate-900/10 no-scrollbar">
+               <div className="bg-white dark:bg-slate-800 rounded-[2rem] border border-slate-200 dark:border-slate-700 overflow-hidden shadow-sm">
+                 <div className="overflow-x-auto no-scrollbar">
+                    <table className="w-full text-left min-w-[850px]">
+                      <thead className="bg-slate-50 dark:bg-slate-900 text-[10px] font-black text-slate-400 uppercase border-b border-slate-100 dark:border-slate-700">
+                        <tr>
+                          <th className="px-8 py-5">Value Date</th>
+                          <th className="px-8 py-5">Activity Details</th>
+                          <th className="px-8 py-5">Quantity Change</th>
+                          <th className="px-8 py-5 text-right">Unit Price</th>
+                          <th className="px-8 py-5 text-right">Total Value</th>
+                          <th className="px-8 py-5">Site Allocation / Supplier</th>
+                          <th className="px-8 py-5 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                        {filteredHistory.map((entry) => {
+                          const project = projects.find(p => p.id === entry.projectId);
+                          const vendor = vendors.find(v => v.id === entry.vendorId);
+                          const isLocked = payments.some(p => p.materialBatchId === entry.id);
+                          const isLinkedExpense = entry.id.startsWith('sh-exp-');
+                          return (
+                            <tr key={entry.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/50 transition-colors group">
+                              <td className="px-8 py-5 text-xs font-bold text-slate-500 dark:text-slate-400">{new Date(entry.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
+                              <td className="px-8 py-5">
+                                <div className="flex items-center gap-2">
+                                  {entry.type === 'Purchase' ? (<div className="p-1.5 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg text-emerald-600"><ShoppingCart size={12} /></div>) : (<div className="p-1.5 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-blue-600"><TrendingDown size={12} /></div>)}
+                                  <span className={`text-[10px] font-black uppercase tracking-widest ${entry.type === 'Purchase' ? 'text-emerald-600' : 'text-blue-600'}`}>{entry.type}</span>
+                                  {isLinkedExpense && <span className="bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-tighter text-slate-400 border border-slate-200 dark:border-slate-600 flex items-center gap-1"><Link size={8} /> Synced</span>}
+                                  {isLocked && <Lock size={10} className="text-amber-500" title="Locked due to payment" />}
+                                </div>
+                                <p className="text-[11px] text-slate-700 dark:text-slate-300 font-semibold mt-1">{entry.note}</p>
+                              </td>
+                              <td className="px-8 py-5"><span className={`text-sm font-black ${entry.type === 'Purchase' ? 'text-emerald-600' : 'text-blue-600'}`}>{entry.type === 'Purchase' ? '+' : '-'}{entry.quantity.toLocaleString()} {historyMaterial.unit}</span></td>
+                              <td className="px-8 py-5 text-right font-bold text-slate-600 dark:text-slate-400">{formatCurrency(entry.unitPrice || historyMaterial.costPerUnit)}</td>
+                              <td className="px-8 py-5 text-right font-black text-slate-800 dark:text-slate-200">{formatCurrency(entry.quantity * (entry.unitPrice || historyMaterial.costPerUnit))}</td>
+                              <td className="px-8 py-5"><div className="flex flex-col gap-1">{project && <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-tight flex items-center gap-1"><Briefcase size={12} className="text-blue-500"/> {project.name}</span>}{vendor && <span className="text-[11px] font-black text-slate-800 dark:text-slate-200 uppercase tracking-tighter flex items-center gap-1"><Users size={12} className="text-emerald-500"/> {vendor.name}</span>}</div></td>
+                              <td className="px-8 py-5 text-right"><div className="flex justify-end gap-1"><button onClick={() => { setEditingHistoryEntry({ material: historyMaterial, entry }); setHistoryEditFormData({ quantity: entry.quantity.toString(), unitPrice: (entry.unitPrice || historyMaterial.costPerUnit).toString(), projectId: entry.projectId || '', vendorId: entry.vendorId || '', date: entry.date, note: entry.note || '' }); setShowEditHistoryModal(true); }} className="p-2 text-slate-300 hover:text-blue-600 transition-colors"><Pencil size={16} /></button><button onClick={() => handleDeleteHistoryEntry(historyMaterial, entry.id)} className="p-2 text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={16} /></button></div></td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                 </div>
+               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit History Modal */}
+      {showEditHistoryModal && editingHistoryEntry && (
+        <div className="fixed inset-0 z-[160] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
+           <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-w-xl shadow-2xl overflow-hidden mobile-sheet animate-in slide-in-from-bottom-8 duration-300">
+              <div className="p-8 border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 flex justify-between items-center shrink-0">
+                 <div className="flex items-center gap-3">
+                   <h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">Edit Activity Log</h2>
+                   {isHistoryEntryLocked && (<div className="px-3 py-1 bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-900/50 rounded-lg flex items-center gap-2"><Lock size={12} className="text-amber-600" /><span className="text-[10px] font-black text-amber-700 dark:text-amber-400 uppercase tracking-widest">Financial Lock Active</span></div>)}
+                 </div>
+                 <button onClick={() => setShowEditHistoryModal(false)} className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"><X size={32} /></button>
               </div>
-              <form onSubmit={handleRecordUsage} className="p-8 space-y-5 overflow-y-auto no-scrollbar max-h-[75vh] pb-safe">
-                 <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Project Site Allocation</label>
-                    <select 
-                      className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none appearance-none" 
-                      value={usageData.projectId} 
-                      onChange={e => setUsageData(p => ({ ...p, projectId: e.target.value, materialId: '' }))}
-                      required
-                    >
-                       <option value="">Select Project Site...</option>
-                       {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                    </select>
-                 </div>
-
-                 <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Material to Deduct (Site Balance)</label>
-                    <select 
-                      className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none appearance-none disabled:opacity-50" 
-                      value={usageData.materialId} 
-                      onChange={e => setUsageData(p => ({ ...p, materialId: e.target.value }))}
-                      disabled={!usageData.projectId}
-                      required
-                    >
-                       <option value="">{usageData.projectId ? 'Choose asset...' : 'Select site first...'}</option>
-                       {relevantMaterialsForSite.map(m => (
-                         <option key={m.id} value={m.id}>
-                           {m.name} (Bal: {m.siteBalance.toLocaleString()} {m.unit})
-                         </option>
-                       ))}
-                    </select>
-                 </div>
-
+              <form onSubmit={handleEditHistorySubmit} className="p-8 space-y-5 overflow-y-auto no-scrollbar max-h-[75vh] pb-safe">
+                 {isHistoryEntryLocked && (<div className="bg-amber-50 dark:bg-amber-900/20 p-4 rounded-2xl border border-amber-100 dark:border-amber-900/30 flex items-start gap-3"><Info size={18} className="text-amber-600 shrink-0 mt-0.5" /><p className="text-[11px] font-bold text-amber-800 dark:text-amber-200 leading-relaxed">This procurement record is locked because settlements (payments) have already been recorded against it.</p></div>)}
+                 {editingHistoryEntry.entry.id.startsWith('sh-exp-') && (<div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-2xl border border-blue-100 dark:border-blue-900/30 flex items-start gap-3"><Link size={18} className="text-blue-600 shrink-0 mt-0.5" /><p className="text-[11px] font-bold text-blue-800 dark:text-blue-200 leading-relaxed"><strong>Ledger Sync Active:</strong> Changes will automatically update the linked Project Expense and Site Budget.</p></div>)}
                  <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1.5">
-                       <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Usage Quantity</label>
-                       <input type="number" required step="0.01" className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-black dark:text-white outline-none" value={usageData.quantity} onChange={e => setUsageData(p => ({ ...p, quantity: e.target.value }))} placeholder="0.00" />
+                       <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Quantity</label>
+                       <input type="number" step="0.01" required disabled={isHistoryEntryLocked} className={`w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white ${isHistoryEntryLocked ? 'opacity-50 cursor-not-allowed' : ''}`} value={historyEditFormData.quantity} onChange={e => setHistoryEditFormData(p => ({ ...p, quantity: e.target.value }))} />
                     </div>
                     <div className="space-y-1.5">
-                       <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Consumption Date</label>
-                       <input type="date" required className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={usageData.date} onChange={e => setUsageData(p => ({ ...p, date: e.target.value }))} />
+                       <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Unit Price (Rs.)</label>
+                       <input type="number" step="0.01" required disabled={isHistoryEntryLocked || editingHistoryEntry.entry.type === 'Usage'} className={`w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white ${(isHistoryEntryLocked || editingHistoryEntry.entry.type === 'Usage') ? 'opacity-50 cursor-not-allowed' : ''}`} value={historyEditFormData.unitPrice} onChange={e => setHistoryEditFormData(p => ({ ...p, unitPrice: e.target.value }))} />
                     </div>
                  </div>
-
-                 <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Usage Note / Area</label>
-                    <textarea rows={2} className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={usageData.notes} onChange={e => setUsageData(p => ({ ...p, notes: e.target.value }))} placeholder="e.g. Ground floor slab casting..."></textarea>
+                 <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                       <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Project Site</label>
+                       <select className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white" value={historyEditFormData.projectId} onChange={e => setHistoryEditFormData(p => ({ ...p, projectId: e.target.value }))}><option value="">No Site</option>{projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
+                    </div>
+                    <div className="space-y-1.5">
+                       <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Date</label>
+                       <input type="date" required className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white" value={historyEditFormData.date} onChange={e => setHistoryEditFormData(p => ({ ...p, date: e.target.value }))} />
+                    </div>
                  </div>
-
-                 <div className="flex gap-4 pt-6">
-                    <button type="button" onClick={() => setShowUsageModal(false)} className="flex-1 bg-slate-100 dark:bg-slate-700 py-4 rounded-[1.5rem] font-bold text-sm uppercase tracking-widest text-slate-500">Cancel</button>
-                    <button type="submit" className="flex-1 bg-blue-600 text-white py-4 rounded-[1.5rem] font-black shadow-2xl transition-all active:scale-95 text-sm uppercase tracking-widest">Authorize Consumption</button>
-                 </div>
+                 {(editingHistoryEntry.entry.type === 'Purchase' || editingHistoryEntry.entry.vendorId) && (<div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Billing Supplier</label><select className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white" value={historyEditFormData.vendorId} onChange={e => setHistoryEditFormData(p => ({ ...p, vendorId: e.target.value }))}><option value="">No Vendor (Direct Site Use)</option>{vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}</select></div>)}
+                 <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Stock Activity Note</label><textarea rows={2} className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={historyEditFormData.note} onChange={e => setHistoryEditFormData(p => ({ ...p, note: e.target.value }))} /></div>
+                 <div className="flex gap-4 pt-6"><button type="button" onClick={() => setShowEditHistoryModal(false)} className="flex-1 bg-slate-100 dark:bg-slate-700 py-4 rounded-[1.5rem] font-bold text-sm uppercase tracking-widest text-slate-500">Cancel</button><button type="submit" className="flex-1 bg-blue-600 text-white py-4 rounded-[1.5rem] font-black shadow-2xl transition-all active:scale-95 text-sm uppercase tracking-widest">Save Ledger Changes</button></div>
               </form>
            </div>
         </div>
       )}
 
-      {/* Edit Material Modal */}
+      {/* Record Consumption (Usage) Modal */}
+      {showUsageModal && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
+           <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-xl shadow-2xl overflow-hidden mobile-sheet animate-in slide-in-from-bottom-8 duration-300">
+              <div className="p-8 border-b border-slate-100 dark:border-slate-700 bg-blue-50/30 dark:bg-blue-900/20 flex justify-between items-center shrink-0">
+                 <div className="flex gap-4 items-center">
+                    <div className="p-4 bg-blue-600 text-white rounded-2xl shadow-lg"><TrendingDown size={24} /></div>
+                    <div><h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">Record Consumption</h2><p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Updates Financial Budget & Site Stock</p></div>
+                 </div>
+                 <button onClick={() => setShowUsageModal(false)} className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"><X size={32} /></button>
+              </div>
+              <form onSubmit={handleRecordUsage} className="p-8 space-y-5 overflow-y-auto no-scrollbar max-h-[75vh] pb-safe">
+                 <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Project Site Allocation</label><select className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none appearance-none" value={usageData.projectId} onChange={e => setUsageData(p => ({ ...p, projectId: e.target.value, materialId: '', vendorId: '' }))} required><option value="">Select Project Site...</option>{projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
+                 <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Material to Deduct (Net stock per vendor)</label><select className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none appearance-none disabled:opacity-50 text-xs" value={`${usageData.materialId}|${usageData.vendorId}`} onChange={e => { const [mId, vId] = e.target.value.split('|'); setUsageData(p => ({ ...p, materialId: mId, vendorId: vId })); }} disabled={!usageData.projectId} required><option value="|">{usageData.projectId ? (relevantMaterialsForSite.length > 0 ? 'Choose stock stream...' : 'No stock found') : 'Select site first...'}</option>{relevantMaterialsForSite.map((m, idx) => { const isLocal = m.priority === 1; const currentStock = isLocal ? m.availableQty : m.globalAvailable; return (<option key={`${m.id}-${m.displayVendorId}-${idx}`} value={`${m.id}|${m.displayVendorId}`} className={isLocal ? 'text-emerald-600 font-black' : 'text-blue-500 font-medium'}>{m.name} ({m.unit}) • Vendor: {m.displayVendorName} • Available: {currentStock.toLocaleString()}</option>); })}</select><div className="flex gap-4 px-1 mt-1"><div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-emerald-500"></div><span className="text-[9px] font-black uppercase text-emerald-600">At This Site</span></div><div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-blue-500"></div><span className="text-[9px] font-black uppercase text-blue-500">Global Pool</span></div></div></div>
+                 <div className="grid grid-cols-2 gap-4"><div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Usage Quantity</label><input type="number" required step="0.01" className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-black dark:text-white outline-none" value={usageData.quantity} onChange={e => setUsageData(p => ({ ...p, quantity: e.target.value }))} placeholder="0.00" /></div><div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Consumption Date</label><input type="date" required className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={usageData.date} onChange={e => setUsageData(p => ({ ...p, date: e.target.value }))} /></div></div>
+                 <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Usage Note / Area</label><textarea rows={2} className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={usageData.notes} onChange={e => setUsageData(p => ({ ...p, notes: e.target.value }))} placeholder="e.g. Ground floor columns..."></textarea></div>
+                 <div className="flex gap-4 pt-6"><button type="button" onClick={() => setShowUsageModal(false)} className="flex-1 bg-slate-100 dark:bg-slate-700 py-4 rounded-[1.5rem] font-bold text-sm uppercase tracking-widest text-slate-500">Cancel</button><button type="submit" className="flex-1 bg-blue-600 text-white py-4 rounded-[1.5rem] font-black shadow-2xl active:scale-95 text-sm uppercase tracking-widest">Authorize Consumption</button></div>
+              </form>
+           </div>
+        </div>
+      )}
+
+      {/* Edit Material Modal (Existing) */}
       {showEditModal && editingMaterial && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
            <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-w-xl shadow-2xl overflow-hidden mobile-sheet animate-in slide-in-from-bottom-8 duration-300">
@@ -951,20 +767,9 @@ export const Inventory: React.FC = () => {
                  <button onClick={() => setShowEditModal(false)} className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"><X size={32} /></button>
               </div>
               <form onSubmit={handleEditMaterialSubmit} className="p-8 space-y-5 pb-safe">
-                 <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Material Name</label>
-                    <input type="text" required className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={editFormData.name} onChange={e => setEditFormData(p => ({ ...p, name: e.target.value }))} />
-                 </div>
-                 <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Stocking Unit</label>
-                    <select className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={editFormData.unit} onChange={e => setEditFormData(p => ({ ...p, unit: e.target.value }))}>
-                       {stockingUnits.map(u => <option key={u} value={u}>{u}</option>)}
-                    </select>
-                 </div>
-                 <div className="flex gap-4 pt-4">
-                    <button type="button" onClick={() => setShowEditModal(false)} className="flex-1 bg-slate-100 dark:bg-slate-700 py-4 rounded-[1.5rem] font-bold text-sm uppercase tracking-widest text-slate-500">Cancel</button>
-                    <button type="submit" className="flex-1 bg-blue-600 text-white py-4 rounded-[1.5rem] font-black shadow-2xl transition-all active:scale-95 text-sm uppercase tracking-widest">Update Asset</button>
-                 </div>
+                 <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Material Name</label><input type="text" required className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={editFormData.name} onChange={e => setEditFormData(p => ({ ...p, name: e.target.value }))} /></div>
+                 <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Stocking Unit</label><select className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={editFormData.unit} onChange={e => setEditFormData(p => ({ ...p, unit: e.target.value }))}>{stockingUnits.map(u => <option key={u} value={u}>{u}</option>)}</select></div>
+                 <div className="flex gap-4 pt-4"><button type="button" onClick={() => setShowEditModal(false)} className="flex-1 bg-slate-100 dark:bg-slate-700 py-4 rounded-[1.5rem] font-bold text-sm uppercase tracking-widest text-slate-500">Cancel</button><button type="submit" className="flex-1 bg-blue-600 text-white py-4 rounded-[1.5rem] font-black shadow-2xl transition-all active:scale-95 text-sm uppercase tracking-widest">Update Asset</button></div>
               </form>
            </div>
         </div>

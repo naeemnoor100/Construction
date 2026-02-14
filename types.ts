@@ -1,4 +1,3 @@
-
 export type UserRole = 'Admin' | 'Accountant' | 'Site Manager';
 
 export interface User {
@@ -73,6 +72,17 @@ export interface Expense {
   notes: string;
   invoiceUrl?: string;
   category: string;
+  inventoryAction?: 'Purchase' | 'Usage';
+}
+
+export interface Invoice {
+  id: string;
+  projectId: string;
+  date: string;
+  amount: number;
+  description: string;
+  status: 'Draft' | 'Sent' | 'Paid' | 'Cancelled';
+  dueDate: string;
 }
 
 export interface Payment {
@@ -93,6 +103,7 @@ export interface Income {
   amount: number;
   description: string;
   method: PaymentMethod;
+  invoiceId?: string;
 }
 
 export interface AppState {
@@ -102,6 +113,7 @@ export interface AppState {
   expenses: Expense[];
   payments: Payment[];
   incomes: Income[];
+  invoices: Invoice[];
   tradeCategories: string[];
   stockingUnits: string[];
   siteStatuses: string[];

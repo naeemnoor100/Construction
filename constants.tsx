@@ -1,5 +1,4 @@
-
-import { AppState, User } from './types';
+import { AppState, User, Project, Vendor, Material, Expense, Income } from './types';
 
 export const MOCK_USER: User = {
   id: 'u1',
@@ -18,6 +17,7 @@ export const INITIAL_STATE: AppState = {
   expenses: [],
   payments: [],
   incomes: [],
+  invoices: [],
   tradeCategories: ['Material', 'Labor', 'Equipment', 'Overhead', 'Permit', 'Fuel', 'Security'],
   stockingUnits: ['Bag', 'Ton', 'KG', 'Piece', 'Cubic Meter', 'Litre', 'Feet'],
   siteStatuses: ['Upcoming', 'Active', 'On Hold', 'Completed', 'Cancelled']
