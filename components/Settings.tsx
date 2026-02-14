@@ -219,13 +219,77 @@ CREATE TABLE expenses (
             )}
 
             {activeSection === 'master-lists' && (
-              <div className="p-8 space-y-8">
+              <div className="p-8 space-y-12">
+                {/* Trade Categories */}
                 <div className="space-y-4">
-                  <h3 className="font-bold text-slate-900 dark:text-white flex items-center gap-2"><Layers size={18} /> Trade Categories</h3>
+                  <h3 className="font-bold text-slate-900 dark:text-white flex items-center gap-2 text-sm uppercase tracking-widest">
+                    <Layers size={18} className="text-blue-500" /> Trade Categories
+                  </h3>
+                  <div className="flex gap-2">
+                    <input 
+                      type="text" 
+                      placeholder="New category..." 
+                      className="flex-1 px-4 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold outline-none"
+                      value={newTradeCat}
+                      onChange={e => setNewTradeCat(e.target.value)}
+                      onKeyPress={e => e.key === 'Enter' && newTradeCat && (addTradeCategory(newTradeCat), setNewTradeCat(''))}
+                    />
+                    <button onClick={() => { if(newTradeCat) { addTradeCategory(newTradeCat); setNewTradeCat(''); } }} className="p-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700"><Plus size={18} /></button>
+                  </div>
                   <div className="flex flex-wrap gap-2 p-3 bg-slate-50 dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-700">
                     {tradeCategories.map(cat => (
-                      <span key={cat} className="flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 rounded-xl text-[10px] font-black uppercase tracking-widest dark:text-slate-300">
-                        {cat} <X size={10} className="cursor-pointer" onClick={() => removeTradeCategory(cat)} />
+                      <span key={cat} className="flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 rounded-xl text-[10px] font-black uppercase tracking-widest dark:text-slate-300 shadow-sm">
+                        {cat} <X size={10} className="cursor-pointer text-slate-400 hover:text-red-500" onClick={() => removeTradeCategory(cat)} />
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Stocking Units */}
+                <div className="space-y-4">
+                  <h3 className="font-bold text-slate-900 dark:text-white flex items-center gap-2 text-sm uppercase tracking-widest">
+                    <Package size={18} className="text-emerald-500" /> Stocking Units
+                  </h3>
+                  <div className="flex gap-2">
+                    <input 
+                      type="text" 
+                      placeholder="New unit (e.g. Bag, Ton)..." 
+                      className="flex-1 px-4 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold outline-none"
+                      value={newStockUnit}
+                      onChange={e => setNewStockUnit(e.target.value)}
+                      onKeyPress={e => e.key === 'Enter' && newStockUnit && (addStockingUnit(newStockUnit), setNewStockUnit(''))}
+                    />
+                    <button onClick={() => { if(newStockUnit) { addStockingUnit(newStockUnit); setNewStockUnit(''); } }} className="p-2 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700"><Plus size={18} /></button>
+                  </div>
+                  <div className="flex flex-wrap gap-2 p-3 bg-slate-50 dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-700">
+                    {stockingUnits.map(unit => (
+                      <span key={unit} className="flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 rounded-xl text-[10px] font-black uppercase tracking-widest dark:text-slate-300 shadow-sm">
+                        {unit} <X size={10} className="cursor-pointer text-slate-400 hover:text-red-500" onClick={() => removeStockingUnit(unit)} />
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Site Statuses */}
+                <div className="space-y-4">
+                  <h3 className="font-bold text-slate-900 dark:text-white flex items-center gap-2 text-sm uppercase tracking-widest">
+                    <Activity size={18} className="text-amber-500" /> Project Statuses
+                  </h3>
+                  <div className="flex gap-2">
+                    <input 
+                      type="text" 
+                      placeholder="New status..." 
+                      className="flex-1 px-4 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold outline-none"
+                      value={newSiteStatus}
+                      onChange={e => setNewSiteStatus(e.target.value)}
+                      onKeyPress={e => e.key === 'Enter' && newSiteStatus && (addSiteStatus(newSiteStatus), setNewSiteStatus(''))}
+                    />
+                    <button onClick={() => { if(newSiteStatus) { addSiteStatus(newSiteStatus); setNewSiteStatus(''); } }} className="p-2 bg-amber-600 text-white rounded-xl hover:bg-amber-700"><Plus size={18} /></button>
+                  </div>
+                  <div className="flex flex-wrap gap-2 p-3 bg-slate-50 dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-700">
+                    {siteStatuses.map(status => (
+                      <span key={status} className="flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 rounded-xl text-[10px] font-black uppercase tracking-widest dark:text-slate-300 shadow-sm">
+                        {status} <X size={10} className="cursor-pointer text-slate-400 hover:text-red-500" onClick={() => removeSiteStatus(status)} />
                       </span>
                     ))}
                   </div>
@@ -233,7 +297,20 @@ CREATE TABLE expenses (
               </div>
             )}
             
-            {/* System settings omitted for brevity, keeping it focused on user's request */}
+            {activeSection === 'system' && (
+               <div className="p-8 space-y-6">
+                 <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700">
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-900 dark:text-white">Appearance Mode</h4>
+                      <p className="text-[10px] text-slate-500 uppercase font-bold">Switch between light and dark themes</p>
+                    </div>
+                    <div className="flex bg-white dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+                       <button onClick={() => setTheme('light')} className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${theme === 'light' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}>Light</button>
+                       <button onClick={() => setTheme('dark')} className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${theme === 'dark' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}>Dark</button>
+                    </div>
+                 </div>
+               </div>
+            )}
           </div>
         </div>
       </div>
