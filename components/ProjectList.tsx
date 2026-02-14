@@ -27,10 +27,14 @@ import {
   Phone,
   Activity,
   ArrowRightLeft,
-  Landmark
+  Landmark,
+  ShoppingCart,
+  ArrowUpRight,
+  ClipboardCheck,
+  Scale
 } from 'lucide-react';
 import { useApp } from '../AppContext';
-import { ProjectStatus, Project, Expense, Income, PaymentMethod, Material, Payment } from '../types';
+import { ProjectStatus, Project, Expense, Income, PaymentMethod, Material, Payment, StockHistoryEntry } from '../types';
 
 const formatCurrency = (val: number) => `Rs. ${val.toLocaleString('en-IN')}`;
 
@@ -47,7 +51,7 @@ export const ProjectList: React.FC = () => {
   const [showModal, setShowModal] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [viewingProject, setViewingProject] = useState<Project | null>(null);
-  const [activeDetailTab, setActiveDetailTab] = useState<'expenses' | 'income'>('expenses');
+  const [activeDetailTab, setActiveDetailTab] = useState<'expenses' | 'income' | 'arrivals'>('expenses');
   
   const [showQuickExpense, setShowQuickExpense] = useState(false);
   const [showQuickIncome, setShowQuickIncome] = useState(false);
@@ -81,7 +85,7 @@ export const ProjectList: React.FC = () => {
   }, []);
 
   const [formData, setFormData] = useState({
-    name: '', client: '', location: '', contactNumber: '', budget: '', startDate: new Date().toISOString().split('T')[0], endDate: '', description: '', status: siteStatuses[0] || 'Active'
+    name: '', client: '', location: '', contactNumber: '', budget: '', startDate: new Date().toISOString().split('T')[0], endDate: '', description: '', status: 'Active'
   });
 
   const [expenseFormData, setExpenseFormData] = useState({
@@ -99,7 +103,20 @@ export const ProjectList: React.FC = () => {
 
   const filteredProjects = projects.filter(p => filter === 'All' || p.status === filter);
 
-  // Site specific inventory calculation for the insights modal
+  // Material Arrivals Logic
+  const projectArrivals = useMemo(() => {
+    if (!viewingProject) return [];
+    const arrivals: { material: Material, entry: StockHistoryEntry }[] = [];
+    materials.forEach(m => {
+      m.history?.forEach(h => {
+        if (h.type === 'Purchase' && h.projectId === viewingProject.id) {
+          arrivals.push({ material: m, entry: h });
+        }
+      });
+    });
+    return arrivals.sort((a, b) => new Date(b.entry.date).getTime() - new Date(a.entry.date).getTime());
+  }, [viewingProject, materials]);
+
   const siteRelevantMaterials = useMemo(() => {
     if (!viewingProject) return [];
     
@@ -145,6 +162,22 @@ export const ProjectList: React.FC = () => {
     return { totalSpent, totalCollected, progress, categoryBreakdown: categories };
   };
 
+  const handleOpenAddModal = () => {
+    setEditingProject(null);
+    setFormData({ 
+      name: '', 
+      client: '', 
+      location: '', 
+      contactNumber: '', 
+      budget: '', 
+      startDate: new Date().toISOString().split('T')[0], 
+      endDate: '', 
+      description: '', 
+      status: siteStatuses[0] || 'Active' 
+    });
+    setShowModal(true);
+  };
+
   const handleQuickExpenseSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!viewingProject) return;
@@ -171,7 +204,7 @@ export const ProjectList: React.FC = () => {
     setExpenseFormData({ amount: '', date: new Date().toISOString().split('T')[0], category: 'Material', vendorId: '', notes: '', paymentMethod: 'Bank' });
   };
 
-  const handleInventoryUsageSubmit = (e: React.FormEvent) => {
+  const handleInventoryUsageSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!viewingProject || !inventoryUsageForm.materialId) return;
 
@@ -186,28 +219,19 @@ export const ProjectList: React.FC = () => {
       return;
     }
 
-    updateMaterial({
-      ...material,
-      totalUsed: material.totalUsed + qty,
-      history: [...(material.history || []), {
-        id: 'sh' + Date.now(),
-        date: inventoryUsageForm.date,
-        type: 'Usage',
-        quantity: qty,
-        projectId: viewingProject.id,
-        note: inventoryUsageForm.note || `Site Consumption: ${viewingProject.name}`
-      }]
-    });
-
     const totalCost = qty * material.costPerUnit;
-    addExpense({
+
+    // Use central addExpense which handles both the financial and material update
+    await addExpense({
       id: 'e-inv-' + Date.now(),
       date: inventoryUsageForm.date,
       projectId: viewingProject.id,
       amount: totalCost,
       paymentMethod: 'Bank',
       category: 'Material',
-      notes: `Inventory Consumption: ${qty} ${material.unit} of ${material.name} used on site.`
+      materialId: material.id,
+      materialQuantity: qty,
+      notes: inventoryUsageForm.note || `Site Consumption: ${qty} ${material.unit} of ${material.name} used on ${viewingProject.name}`
     });
 
     setShowInventoryUsageModal(false);
@@ -308,6 +332,18 @@ export const ProjectList: React.FC = () => {
     setSelectedExpForPay(null);
   };
 
+  const handleTriggerUsageFromArrival = (arrival: { material: Material, entry: StockHistoryEntry }) => {
+    // PRE-SELECT QUANTITY BASE ACTION
+    // Instead of billing the amount, we are recording consumption of quantity
+    setInventoryUsageForm({
+      materialId: arrival.material.id,
+      quantity: arrival.entry.quantity.toString(), // Default to full arrival quantity
+      date: new Date().toISOString().split('T')[0],
+      note: `Consumption of batch received on ${new Date(arrival.entry.date).toLocaleDateString()}`
+    });
+    setShowInventoryUsageModal(true);
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -316,7 +352,7 @@ export const ProjectList: React.FC = () => {
           <p className="text-slate-500 dark:text-slate-400 text-sm font-medium">Monitor sites and manage specific project financials.</p>
         </div>
         <button 
-          onClick={() => { setEditingProject(null); setShowModal(true); setFormData({ name: '', client: '', location: '', contactNumber: '', budget: '', startDate: new Date().toISOString().split('T')[0], endDate: '', description: '', status: siteStatuses[0] || 'Active' }); }}
+          onClick={handleOpenAddModal}
           className="w-full sm:w-auto bg-blue-600 text-white px-5 py-3 rounded-2xl font-bold flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all"
         >
           <Plus size={20} /> Add Project
@@ -412,7 +448,7 @@ export const ProjectList: React.FC = () => {
                 </div>
               </div>
               <button 
-                onClick={() => setViewingProject(project)}
+                onClick={() => { setViewingProject(project); setActiveDetailTab('expenses'); }}
                 className="w-full py-5 bg-slate-50 dark:bg-slate-700/30 border-t border-slate-100 dark:border-slate-700 text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-300 flex items-center justify-between px-6 hover:bg-blue-600 hover:text-white transition-all group/btn"
               >
                 Project Insights
@@ -430,7 +466,7 @@ export const ProjectList: React.FC = () => {
         
         return (
           <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
-            <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-w-6xl h-[92vh] shadow-2xl overflow-hidden flex flex-col mobile-sheet animate-in slide-in-from-bottom-8 duration-300">
+            <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-w-6xl h-[92vh] shadow-2xl overflow-hidden flex flex-col scale-100 transition-all duration-300">
               <div className="p-6 sm:p-8 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-white dark:bg-slate-800 shrink-0">
                 <div className="flex gap-4 items-center">
                   <div className="p-4 bg-blue-600 text-white rounded-[1.5rem] shadow-xl shadow-blue-200 dark:shadow-none hidden sm:block">
@@ -469,75 +505,12 @@ export const ProjectList: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-                  <div className="lg:col-span-2 bg-white dark:bg-slate-800 p-6 rounded-[2rem] border border-slate-200 dark:border-slate-700 shadow-sm">
-                    <div className="flex items-center justify-between mb-6">
-                      <h3 className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest flex items-center gap-2">
-                        <PieChart size={16} className="text-blue-500" />
-                        Expenditure Summary by Category
-                      </h3>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5">
-                      {Object.keys(metrics.categoryBreakdown).length > 0 ? Object.entries(metrics.categoryBreakdown).map(([cat, amt]) => {
-                        const pct = Math.round((amt / metrics.totalSpent) * 100);
-                        return (
-                          <div key={cat} className="space-y-1.5">
-                            <div className="flex justify-between text-[10px] font-bold uppercase tracking-tight">
-                              <span className="text-slate-600 dark:text-slate-400">{cat}</span>
-                              <span className="text-slate-900 dark:text-white">{formatCurrency(amt)}</span>
-                            </div>
-                            <div className="w-full bg-slate-100 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden">
-                              <div className="h-full bg-blue-500" style={{ width: `${pct}%` }}></div>
-                            </div>
-                          </div>
-                        );
-                      }) : (
-                        <div className="col-span-2 py-8 flex flex-col items-center justify-center text-slate-300">
-                          <AlertCircle size={32} className="opacity-20 mb-2" />
-                          <p className="text-[10px] font-bold uppercase">No categorized data available</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="bg-slate-900 dark:bg-slate-950 p-6 rounded-[2rem] text-white flex flex-col shadow-2xl">
-                    <h3 className="text-xs font-black uppercase tracking-widest mb-4 flex items-center gap-2">
-                      <Users size={16} className="text-blue-400" />
-                      Top Supply Partners
-                    </h3>
-                    <div className="flex-1 space-y-4 overflow-y-auto no-scrollbar">
-                      {(() => {
-                        const vendorSpend: Record<string, number> = {};
-                        projectExpenses.forEach(e => {
-                          if (e.vendorId) vendorSpend[e.vendorId] = (vendorSpend[e.vendorId] || 0) + e.amount;
-                        });
-                        const sorted = Object.entries(vendorSpend).sort((a,b) => b[1] - a[1]).slice(0, 3);
-                        
-                        return sorted.length > 0 ? sorted.map(([vid, amt]) => (
-                          <div key={vid} className="flex items-center justify-between border-b border-white/10 pb-3 last:border-0">
-                            <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 bg-white/10 rounded-lg flex items-center justify-center text-[10px] font-bold">{vendors.find(v => v.id === vid)?.name.charAt(0)}</div>
-                              <span className="text-[11px] font-bold truncate max-w-[100px]">{vendors.find(v => v.id === vid)?.name}</span>
-                            </div>
-                            <span className="text-[11px] font-black text-blue-400">{formatCurrency(amt)}</span>
-                          </div>
-                        )) : <p className="text-[10px] text-white/40 font-bold uppercase text-center mt-10">No specific vendor data</p>;
-                      })()}
-                    </div>
-                    <div className="mt-4 pt-4 border-t border-white/10 flex justify-between items-center">
-                       <span className="text-[9px] font-bold text-white/50 uppercase">Project Profit Margin</span>
-                       <span className={`text-xs font-black ${metrics.totalCollected > metrics.totalSpent ? 'text-emerald-400' : 'text-red-400'}`}>
-                         {metrics.totalCollected > 0 ? Math.round(((metrics.totalCollected - metrics.totalSpent) / metrics.totalCollected) * 100) : 0}%
-                       </span>
-                    </div>
-                  </div>
-                </div>
-
                 <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] border border-slate-200 dark:border-slate-700 overflow-hidden shadow-sm flex flex-col">
                   <div className="flex flex-col sm:flex-row border-b border-slate-100 dark:border-slate-700 justify-between items-start sm:items-center pr-6 bg-slate-50/30 dark:bg-slate-900/20">
                     <div className="flex w-full sm:w-auto">
                       <button onClick={() => setActiveDetailTab('expenses')} className={`flex-1 sm:flex-none px-8 py-5 text-[10px] font-black uppercase tracking-widest transition-all ${activeDetailTab === 'expenses' ? 'bg-white dark:bg-slate-800 text-blue-600 border-b-4 border-blue-600' : 'text-slate-400'}`}>Daily Expenses</button>
                       <button onClick={() => setActiveDetailTab('income')} className={`flex-1 sm:flex-none px-8 py-5 text-[10px] font-black uppercase tracking-widest transition-all ${activeDetailTab === 'income' ? 'bg-white dark:bg-slate-800 text-emerald-600 border-b-4 border-emerald-600' : 'text-slate-400'}`}>Site Income</button>
+                      <button onClick={() => setActiveDetailTab('arrivals')} className={`flex-1 sm:flex-none px-8 py-5 text-[10px] font-black uppercase tracking-widest transition-all ${activeDetailTab === 'arrivals' ? 'bg-white dark:bg-slate-800 text-amber-600 border-b-4 border-amber-600' : 'text-slate-400'}`}>Material Arrivals</button>
                     </div>
                     <div className="p-4 sm:p-0 flex gap-2 w-full sm:w-auto">
                       {activeDetailTab === 'expenses' ? (
@@ -555,79 +528,136 @@ export const ProjectList: React.FC = () => {
                             <Receipt size={16} /> Record Cost
                           </button>
                         </>
-                      ) : (
+                      ) : activeDetailTab === 'income' ? (
                         <button onClick={() => { setEditingIncome(null); setShowQuickIncome(true); }} className="flex-1 sm:flex-none bg-emerald-600 text-white px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-emerald-700 shadow-xl active:scale-95 transition-all">
                           <ArrowDownCircle size={16} /> Record Payment
                         </button>
-                      )}
+                      ) : null}
                     </div>
                   </div>
                   
                   <div className="overflow-x-auto no-scrollbar">
-                     <table className="w-full text-left min-w-[700px]">
-                       <thead className="bg-slate-50/50 dark:bg-slate-900/50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 dark:border-slate-700">
-                         <tr>
-                          <th className="px-8 py-5">Txn Date</th>
-                          <th className="px-8 py-5">Detailed Ledger Entry</th>
-                          <th className="px-8 py-5 text-right">Settled Amount</th>
-                          <th className="px-8 py-5 text-right">Actions</th>
-                         </tr>
-                       </thead>
-                       <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-                          {activeDetailTab === 'expenses' ? (
-                            projectExpenses.slice().reverse().map(e => {
-                              const isMatPurchase = e.category === 'Material' && e.vendorId;
-                              const totalPaidForExp = payments
-                                .filter(p => p.materialBatchId === 'sh-exp-' + e.id)
-                                .reduce((sum, p) => sum + p.amount, 0);
-                              const isFullyPaid = isMatPurchase && totalPaidForExp >= (e.amount - 0.01);
-
+                     {activeDetailTab === 'arrivals' ? (
+                       <table className="w-full text-left min-w-[700px]">
+                         <thead className="bg-slate-50/50 dark:bg-slate-900/50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 dark:border-slate-700">
+                           <tr>
+                            <th className="px-8 py-5">Arrival Date</th>
+                            <th className="px-8 py-5">Material Asset</th>
+                            <th className="px-8 py-5">Qty Received (Site Stock)</th>
+                            <th className="px-8 py-5 text-right">Unit Price / Value</th>
+                            <th className="px-8 py-5 text-right">Actions</th>
+                           </tr>
+                         </thead>
+                         <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                            {projectArrivals.map((arrival, idx) => {
+                              const value = arrival.entry.quantity * (arrival.entry.unitPrice || arrival.material.costPerUnit);
+                              
                               return (
-                                <tr key={e.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/50 transition-colors group/row">
-                                  <td className="px-8 py-5 text-xs font-bold text-slate-500 dark:text-slate-400">{new Date(e.date).toLocaleDateString()}</td>
+                                <tr key={`${arrival.material.id}-${idx}`} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/50 transition-colors group/row">
+                                  <td className="px-8 py-5 text-xs font-bold text-slate-500 dark:text-slate-400">{new Date(arrival.entry.date).toLocaleDateString()}</td>
                                   <td className="px-8 py-5">
-                                    <p className="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-tighter truncate max-w-[200px]">{e.notes}</p>
-                                    <span className="text-[9px] font-black uppercase text-blue-500">{e.category}</span>
-                                    {isMatPurchase && !isFullyPaid && (
-                                      <p className="text-[8px] font-black text-amber-500 uppercase mt-0.5">Dues Pending: {formatCurrency(e.amount - totalPaidForExp)}</p>
-                                    )}
+                                    <p className="text-sm font-black text-slate-800 dark:text-slate-200 uppercase tracking-tighter truncate max-w-[200px]">{arrival.material.name}</p>
+                                    <span className="text-[9px] font-bold text-slate-400 uppercase">Vendor: {vendors.find(v => v.id === arrival.entry.vendorId)?.name || 'Direct'}</span>
                                   </td>
-                                  <td className="px-8 py-5 text-sm font-black text-red-600 text-right">{formatCurrency(e.amount)}</td>
-                                  <td className="px-8 py-5 text-right">
-                                    <div className="flex justify-end gap-1 opacity-100 lg:opacity-0 group-hover/row:opacity-100 transition-opacity">
-                                      {isMatPurchase && !isFullyPaid && (
-                                        <button 
-                                          onClick={() => handleInitiatePayFromInsights(e)}
-                                          className="p-2 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-lg"
-                                          title="Initiate Payment"
-                                        >
-                                          <DollarSign size={16} />
-                                        </button>
-                                      )}
-                                      <button onClick={() => handleEditExpense(e)} className="p-2 text-slate-400 hover:text-blue-600"><Pencil size={18} /></button>
-                                      <button onClick={() => deleteExpense(e.id)} className="p-2 text-slate-400 hover:text-red-600"><Trash2 size={18} /></button>
+                                  <td className="px-8 py-5">
+                                    <div className="flex items-center gap-2">
+                                       <Scale size={14} className="text-blue-400" />
+                                       <span className="text-sm font-black text-slate-900 dark:text-white uppercase">
+                                         {arrival.entry.quantity.toLocaleString()} {arrival.material.unit}s
+                                       </span>
                                     </div>
+                                  </td>
+                                  <td className="px-8 py-5 text-right">
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase">Est: {formatCurrency(value)}</p>
+                                    <p className="text-[9px] font-medium text-slate-400">@{formatCurrency(arrival.entry.unitPrice || arrival.material.costPerUnit)}</p>
+                                  </td>
+                                  <td className="px-8 py-5 text-right">
+                                    <button 
+                                      onClick={() => handleTriggerUsageFromArrival(arrival)}
+                                      className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all flex items-center gap-2 ml-auto shadow-sm active:scale-95 bg-blue-600 text-white hover:bg-blue-700`}
+                                    >
+                                      <ArrowUpRight size={14} /> Record Consumption
+                                    </button>
                                   </td>
                                 </tr>
                               );
-                            })
-                          ) : (
-                            incomes.filter(i => i.projectId === viewingProject.id).slice().reverse().map(i => (
-                              <tr key={i.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/50 transition-colors group/row">
-                                <td className="px-8 py-5 text-xs font-bold text-slate-500 dark:text-slate-400">{new Date(i.date).toLocaleDateString()}</td>
-                                <td className="px-8 py-5 text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-tighter">{i.description}</td>
-                                <td className="px-8 py-5 text-sm font-black text-emerald-600 text-right">{formatCurrency(i.amount)}</td>
-                                <td className="px-8 py-5 text-right">
-                                  <div className="flex justify-end gap-2 opacity-100 lg:opacity-0 group-hover/row:opacity-100 transition-opacity">
-                                    <button onClick={() => handleEditIncome(i)} className="p-2 text-slate-400 hover:text-blue-600"><Pencil size={18} /></button>
-                                    <button onClick={() => deleteIncome(i.id)} className="p-2 text-slate-400 hover:text-red-600"><Trash2 size={18} /></button>
-                                  </div>
+                            })}
+                            {projectArrivals.length === 0 && (
+                              <tr>
+                                <td colSpan={5} className="px-8 py-20 text-center text-slate-300">
+                                   <ShoppingCart size={40} className="mx-auto mb-2 opacity-20" />
+                                   <p className="text-[10px] font-bold uppercase">No material arrivals recorded for this site</p>
                                 </td>
                               </tr>
-                            ))
-                          )}
-                       </tbody>
-                     </table>
+                            )}
+                         </tbody>
+                       </table>
+                     ) : (
+                       <table className="w-full text-left min-w-[700px]">
+                         <thead className="bg-slate-50/50 dark:bg-slate-900/50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 dark:border-slate-700">
+                           <tr>
+                            <th className="px-8 py-5">Txn Date</th>
+                            <th className="px-8 py-5">Detailed Ledger Entry</th>
+                            <th className="px-8 py-5 text-right">Settled Amount</th>
+                            <th className="px-8 py-5 text-right">Actions</th>
+                           </tr>
+                         </thead>
+                         <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                            {activeDetailTab === 'expenses' ? (
+                              projectExpenses.slice().reverse().map(e => {
+                                const isMatPurchase = e.category === 'Material' && e.vendorId;
+                                const totalPaidForExp = payments
+                                  .filter(p => p.materialBatchId === 'sh-exp-' + e.id)
+                                  .reduce((sum, p) => sum + p.amount, 0);
+                                const isFullyPaid = isMatPurchase && totalPaidForExp >= (e.amount - 0.01);
+
+                                return (
+                                  <tr key={e.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/50 transition-colors group/row">
+                                    <td className="px-8 py-5 text-xs font-bold text-slate-500 dark:text-slate-400">{new Date(e.date).toLocaleDateString()}</td>
+                                    <td className="px-8 py-5">
+                                      <p className="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-tighter truncate max-w-[200px]">{e.notes}</p>
+                                      <span className="text-[9px] font-black uppercase text-blue-500">{e.category}</span>
+                                      {isMatPurchase && !isFullyPaid && (
+                                        <p className="text-[8px] font-black text-amber-500 uppercase mt-0.5">Dues Pending: {formatCurrency(e.amount - totalPaidForExp)}</p>
+                                      )}
+                                    </td>
+                                    <td className="px-8 py-5 text-sm font-black text-red-600 text-right">{formatCurrency(e.amount)}</td>
+                                    <td className="px-8 py-5 text-right">
+                                      <div className="flex justify-end gap-1 opacity-100 lg:opacity-0 group-hover/row:opacity-100 transition-opacity">
+                                        {isMatPurchase && !isFullyPaid && (
+                                          <button 
+                                            onClick={() => handleInitiatePayFromInsights(e)}
+                                            className="p-2 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-lg"
+                                            title="Initiate Payment"
+                                          >
+                                            <DollarSign size={16} />
+                                          </button>
+                                        )}
+                                        <button onClick={() => handleEditExpense(e)} className="p-2 text-slate-400 hover:text-blue-600"><Pencil size={18} /></button>
+                                        <button onClick={() => deleteExpense(e.id)} className="p-2 text-slate-400 hover:text-red-600"><Trash2 size={18} /></button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                );
+                              })
+                            ) : (
+                              incomes.filter(i => i.projectId === viewingProject.id).slice().reverse().map(i => (
+                                <tr key={i.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/50 transition-colors group/row">
+                                  <td className="px-8 py-5 text-xs font-bold text-slate-500 dark:text-slate-400">{new Date(i.date).toLocaleDateString()}</td>
+                                  <td className="px-8 py-5 text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-tighter">{i.description}</td>
+                                  <td className="px-8 py-5 text-sm font-black text-emerald-600 text-right">{formatCurrency(i.amount)}</td>
+                                  <td className="px-8 py-5 text-right">
+                                    <div className="flex justify-end gap-2 opacity-100 lg:opacity-0 group-hover/row:opacity-100 transition-opacity">
+                                      <button onClick={() => handleEditIncome(i)} className="p-2 text-slate-400 hover:text-blue-600"><Pencil size={18} /></button>
+                                      <button onClick={() => deleteIncome(i.id)} className="p-2 text-slate-400 hover:text-red-600"><Trash2 size={18} /></button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))
+                            )}
+                         </tbody>
+                       </table>
+                     )}
                   </div>
                 </div>
               </div>
@@ -642,22 +672,22 @@ export const ProjectList: React.FC = () => {
       {/* Record Expense from Inventory Modal */}
       {showInventoryUsageModal && viewingProject && (
         <div className="fixed inset-0 z-[125] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
-          <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-w-lg shadow-2xl overflow-hidden mobile-sheet animate-in slide-in-from-bottom-8 duration-300">
+          <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-w-lg shadow-2xl overflow-hidden scale-100 transition-all duration-300">
              <div className="p-6 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-blue-50/30 dark:bg-blue-900/20">
                 <div className="flex gap-4 items-center">
                   <div className="p-3 bg-blue-600 text-white rounded-2xl shadow-lg">
                     <Package size={24} />
                   </div>
                   <div>
-                    <h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">Inventory Consumption</h2>
-                    <p className="text-[10px] text-slate-500 font-bold uppercase">Assign stock to site expense</p>
+                    <h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">Site Consumption</h2>
+                    <p className="text-[10px] text-slate-500 font-bold uppercase">Assign quantities to project logs</p>
                   </div>
                 </div>
                 <button onClick={() => setShowInventoryUsageModal(false)} className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white"><X size={28} /></button>
              </div>
              <form onSubmit={handleInventoryUsageSubmit} className="p-6 space-y-5 pb-safe">
                 <div className="space-y-1.5">
-                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Select Material (Site Stock Available)</label>
+                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Target Material</label>
                    <select 
                     className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none appearance-none text-xs" 
                     value={inventoryUsageForm.materialId} 
@@ -667,7 +697,7 @@ export const ProjectList: React.FC = () => {
                     <option value="">Choose Asset...</option>
                     {siteRelevantMaterials.map(m => (
                       <option key={m.id} value={m.id}>
-                        {m.name} • Bal: {m.siteBalance.toLocaleString()} {m.unit} • Supp: {m.vendorNames.join(', ') || 'Direct'}
+                        {m.name} • Available Qty: {m.siteBalance.toLocaleString()} {m.unit}
                       </option>
                     ))}
                   </select>
@@ -675,19 +705,19 @@ export const ProjectList: React.FC = () => {
 
                 <div className="grid grid-cols-2 gap-4">
                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Consumption Qty</label>
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Quantity to Consume</label>
                       <input 
                         type="number" 
                         required 
                         step="0.01" 
                         placeholder="0.00"
-                        className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white" 
+                        className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-black dark:text-white" 
                         value={inventoryUsageForm.quantity} 
                         onChange={e => setInventoryUsageForm(p => ({ ...p, quantity: e.target.value }))} 
                       />
                    </div>
                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Allocation Date</label>
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Consumption Date</label>
                       <input 
                         type="date" 
                         required 
@@ -699,7 +729,7 @@ export const ProjectList: React.FC = () => {
                 </div>
 
                 <div className="space-y-1.5">
-                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Consumption Note (Optional)</label>
+                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Activity Log Note (Optional)</label>
                    <textarea 
                     rows={2} 
                     placeholder="e.g. Columns for 4th block..."
@@ -712,7 +742,7 @@ export const ProjectList: React.FC = () => {
                 {inventoryUsageForm.materialId && (
                   <div className="bg-slate-900 p-4 rounded-2xl text-white flex justify-between items-center shadow-xl">
                     <div>
-                      <p className="text-[9px] font-black text-white/50 uppercase tracking-widest">Calculated Expense Value</p>
+                      <p className="text-[9px] font-black text-white/50 uppercase tracking-widest">Auto-Calculated Financial Impact</p>
                       <p className="text-lg font-black text-blue-400">
                         {(() => {
                           const mat = materials.find(m => m.id === inventoryUsageForm.materialId);
@@ -720,149 +750,12 @@ export const ProjectList: React.FC = () => {
                         })()}
                       </p>
                     </div>
-                    <CheckCircle2 size={24} className="text-blue-500 opacity-50" />
+                    <Scale size={24} className="text-blue-500 opacity-50" />
                   </div>
                 )}
 
                 <button type="submit" className="w-full bg-blue-600 text-white py-4 rounded-3xl font-black shadow-lg shadow-blue-100 active:scale-95 transition-all text-sm uppercase tracking-widest flex items-center justify-center gap-2">
-                  Confirm Site Consumption
-                </button>
-             </form>
-          </div>
-        </div>
-      )}
-
-      {/* Quick Record Modals */}
-      {showQuickExpense && viewingProject && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
-           <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-w-lg shadow-2xl overflow-hidden mobile-sheet animate-in slide-in-from-bottom-8 duration-300">
-              <div className="p-6 border-b border-slate-100 dark:border-slate-700 bg-red-50/30 dark:bg-red-900/20 flex justify-between items-center">
-                 <h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">{editingExpense ? 'Modify Site Expense' : 'Record Site Expense'}</h2>
-                 <button onClick={() => { setShowQuickExpense(false); setEditingExpense(null); }} className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white"><X size={28} /></button>
-              </div>
-              <form onSubmit={handleQuickExpenseSubmit} className="p-6 space-y-5 pb-safe">
-                 <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1.5">
-                       <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Amount (Rs.)</label>
-                       <input type="number" required step="0.01" className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={expenseFormData.amount} onChange={e => setExpenseFormData(p => ({ ...p, amount: e.target.value }))} />
-                    </div>
-                    <div className="space-y-1.5">
-                       <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Date</label>
-                       <input type="date" required className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={expenseFormData.date} onChange={e => setExpenseFormData(p => ({ ...p, date: e.target.value }))} />
-                    </div>
-                 </div>
-                 <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Source Vendor</label>
-                    <select className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none appearance-none" value={expenseFormData.vendorId} onChange={e => setExpenseFormData(p => ({ ...p, vendorId: e.target.value }))}>
-                       <option value="">Direct / Local Purchase</option>
-                       {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                    </select>
-                 </div>
-                 <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Ledger Entry Note</label>
-                    <textarea rows={2} required className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={expenseFormData.notes} onChange={e => setExpenseFormData(p => ({ ...p, notes: e.target.value }))} placeholder="e.g. Weekly labor payments..."></textarea>
-                 </div>
-                 <button type="submit" className="w-full bg-red-600 text-white py-4 rounded-3xl font-black shadow-lg shadow-red-100 active:scale-95 transition-all text-sm uppercase tracking-widest">
-                    {editingExpense ? 'Save Changes' : 'Authorize Site Cost'}
-                 </button>
-              </form>
-           </div>
-        </div>
-      )}
-
-      {showQuickIncome && viewingProject && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
-           <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-w-lg shadow-2xl overflow-hidden mobile-sheet animate-in slide-in-from-bottom-8 duration-300">
-              <div className="p-6 border-b border-slate-100 dark:border-slate-700 bg-emerald-50/30 dark:bg-emerald-900/20 flex justify-between items-center">
-                 <h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">{editingIncome ? 'Modify Milestone' : 'Record Milestone Income'}</h2>
-                 <button onClick={() => { setShowQuickIncome(false); setEditingIncome(null); }} className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white"><X size={28} /></button>
-              </div>
-              <form onSubmit={handleQuickIncomeSubmit} className="p-6 space-y-5 pb-safe">
-                 <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1.5">
-                       <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Amount (Rs.)</label>
-                       <input type="number" required step="0.01" className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={incomeFormData.amount} onChange={e => setIncomeFormData(p => ({ ...p, amount: e.target.value }))} />
-                    </div>
-                    <div className="space-y-1.5">
-                       <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Date</label>
-                       <input type="date" required className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={incomeFormData.date} onChange={e => setIncomeFormData(p => ({ ...p, date: e.target.value }))} />
-                    </div>
-                 </div>
-                 <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Milestone Description</label>
-                    <textarea rows={2} required className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={incomeFormData.description} onChange={e => setIncomeFormData(p => ({ ...p, description: e.target.value }))} placeholder="e.g. 5th Floor Slab Completion..."></textarea>
-                 </div>
-                 <button type="submit" className="w-full bg-emerald-600 text-white py-4 rounded-3xl font-black shadow-lg shadow-emerald-100 active:scale-95 transition-all text-sm uppercase tracking-widest">
-                    {editingIncome ? 'Save Changes' : 'Record Site Payment'}
-                 </button>
-              </form>
-           </div>
-        </div>
-      )}
-
-      {/* Quick Pay Modal for Material Purchase Settlements */}
-      {showQuickPayModal && selectedExpForPay && (
-        <div className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
-          <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-w-lg shadow-2xl overflow-hidden mobile-sheet animate-in slide-in-from-bottom-8 duration-300">
-             <div className="p-8 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-emerald-50/30 dark:bg-emerald-900/10 shrink-0">
-                <div className="flex gap-4 items-center">
-                  <div className="p-4 bg-emerald-600 text-white rounded-2xl shadow-lg">
-                    <DollarSign size={24} />
-                  </div>
-                  <div>
-                    <h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tighter leading-none">Initiate Settlement</h2>
-                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Paying: {vendors.find(v => v.id === selectedExpForPay.vendorId)?.name}</p>
-                  </div>
-                </div>
-                <button onClick={() => setShowQuickPayModal(false)} className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white"><X size={32} /></button>
-             </div>
-             <form onSubmit={handleQuickPaySubmit} className="p-8 space-y-5 pb-safe overflow-y-auto no-scrollbar max-h-[75vh]">
-                <div className="bg-slate-900 dark:bg-slate-950 p-6 rounded-[2rem] text-white flex justify-between items-center shadow-2xl">
-                   <div>
-                      <p className="text-[10px] font-black text-white/50 uppercase tracking-widest mb-1">Expense Bill Value</p>
-                      <p className="text-xl font-black">{formatCurrency(selectedExpForPay.amount)}</p>
-                   </div>
-                   <ArrowRightLeft className="text-white/20" size={24} />
-                   <div className="text-right">
-                      <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest mb-1">Settlement Qty</p>
-                      <p className="text-xl font-black text-emerald-500">{formatCurrency(parseFloat(payFormData.amount) || 0)}</p>
-                   </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                   <div className="space-y-1.5">
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Payment Amount (Rs.)</label>
-                      <input type="number" required step="0.01" className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-black dark:text-white outline-none focus:ring-4 focus:ring-emerald-500/10" value={payFormData.amount} onChange={e => setPayFormData(p => ({ ...p, amount: e.target.value }))} />
-                   </div>
-                   <div className="space-y-1.5">
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Value Date</label>
-                      <input type="date" required className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={payFormData.date} onChange={e => setPayFormData(p => ({ ...p, date: e.target.value }))} />
-                   </div>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Payment Mode</label>
-                  <div className="grid grid-cols-3 gap-2">
-                     {(['Bank', 'Cash', 'Online'] as PaymentMethod[]).map(m => (
-                       <button
-                         key={m} type="button"
-                         onClick={() => setPayFormData(p => ({ ...p, method: m }))}
-                         className={`py-3 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${payFormData.method === m ? 'bg-slate-900 border-slate-900 text-white shadow-lg' : 'bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-500'}`}
-                       >{m}</button>
-                     ))}
-                  </div>
-                </div>
-
-                <div className="space-y-1.5">
-                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Reference / UTR Number</label>
-                   <div className="relative">
-                      <Landmark className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                      <input type="text" placeholder="Optional transaction code..." className="w-full pl-12 pr-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={payFormData.reference} onChange={e => setPayFormData(p => ({ ...p, reference: e.target.value }))} />
-                   </div>
-                </div>
-
-                <button type="submit" className="w-full bg-emerald-600 text-white py-5 rounded-[2rem] font-black shadow-2xl shadow-emerald-100 dark:shadow-none active:scale-95 transition-all text-sm uppercase tracking-widest flex items-center justify-center gap-3">
-                  <CheckCircle2 size={24} /> Confirm Settlement
+                  Authorize Physical Consumption
                 </button>
              </form>
           </div>
@@ -872,12 +765,12 @@ export const ProjectList: React.FC = () => {
       {/* Project Add/Edit Modal */}
       {showModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
-          <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-w-xl shadow-2xl overflow-hidden flex flex-col h-fit max-h-[92vh] mobile-sheet animate-in slide-in-from-bottom-8 duration-300">
+          <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-w-xl shadow-2xl overflow-hidden flex flex-col h-fit max-h-[92vh] scale-100 transition-all duration-300">
             <div className="p-6 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-50/50 dark:bg-slate-900">
               <h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">{editingProject ? 'Edit Site Profile' : 'New Project'}</h2>
               <button onClick={() => setShowModal(false)} className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"><X size={28} /></button>
             </div>
-            <form onSubmit={(e) => {
+            <form onSubmit={async (e) => {
               e.preventDefault();
               const projectData: Project = {
                 id: editingProject ? editingProject.id : 'p' + Date.now(),
@@ -891,10 +784,9 @@ export const ProjectList: React.FC = () => {
                 status: formData.status,
                 description: formData.description
               };
-              if (editingProject) updateProject(projectData); else addProject(projectData);
+              if (editingProject) await updateProject(projectData); else await addProject(projectData);
               setShowModal(false);
               setEditingProject(null);
-              setFormData({ name: '', client: '', location: '', contactNumber: '', budget: '', startDate: new Date().toISOString().split('T')[0], endDate: '', description: '', status: siteStatuses[0] || 'Active' });
             }} className="p-6 space-y-5 overflow-y-auto no-scrollbar pb-safe">
               <div className="space-y-1.5">
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Official Project Name</label>

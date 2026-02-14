@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useMemo, useEffect } from 'react';
-import { AppState, Project, Vendor, Material, Expense, Payment, Income, User } from './types';
+import { AppState, Project, Vendor, Material, Expense, Payment, Income, User, StockHistoryEntry } from './types';
 import { INITIAL_STATE } from './constants';
 
 interface AppContextType extends AppState {
@@ -57,7 +57,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       await new Promise(resolve => setTimeout(resolve, 800)); 
       const saved = localStorage.getItem('buildtrack_pro_state_v2');
-      if (saved) setState(JSON.parse(saved));
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        setState(prev => ({
+          ...INITIAL_STATE,
+          ...parsed,
+          currentUser: parsed.currentUser || INITIAL_STATE.currentUser,
+          siteStatuses: parsed.siteStatuses || INITIAL_STATE.siteStatuses,
+          tradeCategories: parsed.tradeCategories || INITIAL_STATE.tradeCategories,
+          stockingUnits: parsed.stockingUnits || INITIAL_STATE.stockingUnits
+        }));
+      }
       setSyncError(false);
     } catch (e) {
       console.error("Database connection failed", e);
@@ -146,16 +156,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     await apiRequest('POST', '/expenses', e);
     setState(prev => {
       let newVendors = e.vendorId ? prev.vendors.map(v => v.id === e.vendorId ? { ...v, balance: v.balance + e.amount } : v) : prev.vendors;
-      let newMaterials = prev.materials;
+      let newMaterials = [...prev.materials];
+      
       if (e.materialId && e.materialQuantity) {
-        newMaterials = prev.materials.map(m => {
+        newMaterials = newMaterials.map(m => {
           if (m.id === e.materialId) {
             const isPurchase = !!e.vendorId;
             return {
               ...m,
               totalPurchased: isPurchase ? m.totalPurchased + e.materialQuantity! : m.totalPurchased,
               totalUsed: !isPurchase ? m.totalUsed + e.materialQuantity! : m.totalUsed,
-              history: [...(m.history || []), { id: 'sh-' + e.id, date: e.date, type: isPurchase ? 'Purchase' : 'Usage', quantity: e.materialQuantity!, projectId: e.projectId, vendorId: e.vendorId, note: e.notes, unitPrice: m.costPerUnit }]
+              history: [...(m.history || []), { 
+                id: 'sh-' + e.id, 
+                date: e.date, 
+                type: isPurchase ? 'Purchase' : 'Usage', 
+                quantity: e.materialQuantity!, 
+                projectId: e.projectId, 
+                vendorId: e.vendorId, 
+                note: e.notes, 
+                unitPrice: m.costPerUnit 
+              }]
             };
           }
           return m;
@@ -169,8 +189,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     await apiRequest('PUT', `/expenses/${e.id}`, e);
     setState(prev => {
       const oldExp = prev.expenses.find(x => x.id === e.id);
-      let nextVendors = [...prev.vendors];
       
+      // 1. Update Vendor Balances
+      let nextVendors = [...prev.vendors];
       if (oldExp && oldExp.vendorId) {
         nextVendors = nextVendors.map(v => v.id === oldExp.vendorId ? { ...v, balance: Math.max(0, v.balance - oldExp.amount) } : v);
       }
@@ -178,10 +199,56 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         nextVendors = nextVendors.map(v => v.id === e.vendorId ? { ...v, balance: v.balance + e.amount } : v);
       }
       
+      // 2. Update Material Stock Quantities
+      let nextMaterials = [...prev.materials];
+      
+      // Revert Old Material Stock
+      if (oldExp && oldExp.materialId && oldExp.materialQuantity) {
+        nextMaterials = nextMaterials.map(m => {
+          if (m.id === oldExp.materialId) {
+            const wasPurchase = !!oldExp.vendorId;
+            return {
+              ...m,
+              totalPurchased: wasPurchase ? m.totalPurchased - oldExp.materialQuantity! : m.totalPurchased,
+              totalUsed: !wasPurchase ? m.totalUsed - oldExp.materialQuantity! : m.totalUsed,
+              history: (m.history || []).filter(h => h.id !== 'sh-' + oldExp.id)
+            };
+          }
+          return m;
+        });
+      }
+
+      // Apply New Material Stock
+      if (e.materialId && e.materialQuantity) {
+        nextMaterials = nextMaterials.map(m => {
+          if (m.id === e.materialId) {
+            const isPurchase = !!e.vendorId;
+            const newHistoryItem: StockHistoryEntry = {
+              id: 'sh-' + e.id,
+              date: e.date,
+              type: isPurchase ? 'Purchase' : 'Usage',
+              quantity: e.materialQuantity!,
+              projectId: e.projectId,
+              vendorId: e.vendorId,
+              note: e.notes,
+              unitPrice: m.costPerUnit
+            };
+            return {
+              ...m,
+              totalPurchased: isPurchase ? m.totalPurchased + e.materialQuantity! : m.totalPurchased,
+              totalUsed: !isPurchase ? m.totalUsed + e.materialQuantity! : m.totalUsed,
+              history: [...(m.history || []), newHistoryItem]
+            };
+          }
+          return m;
+        });
+      }
+      
       return {
         ...prev,
         expenses: prev.expenses.map(x => x.id === e.id ? e : x),
-        vendors: nextVendors
+        vendors: nextVendors,
+        materials: nextMaterials
       };
     });
   };
@@ -194,10 +261,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (oldExp && oldExp.vendorId) {
         nextVendors = nextVendors.map(v => v.id === oldExp.vendorId ? { ...v, balance: Math.max(0, v.balance - oldExp.amount) } : v);
       }
+      
+      let nextMaterials = [...prev.materials];
+      if (oldExp && oldExp.materialId && oldExp.materialQuantity) {
+        nextMaterials = nextMaterials.map(m => {
+          if (m.id === oldExp.materialId) {
+            const wasPurchase = !!oldExp.vendorId;
+            return {
+              ...m,
+              totalPurchased: wasPurchase ? m.totalPurchased - oldExp.materialQuantity! : m.totalPurchased,
+              totalUsed: !wasPurchase ? m.totalUsed - oldExp.materialQuantity! : m.totalUsed,
+              history: (m.history || []).filter(h => h.id !== 'sh-' + oldExp.id)
+            };
+          }
+          return m;
+        });
+      }
+
       return {
         ...prev,
         expenses: prev.expenses.filter(x => x.id !== id),
-        vendors: nextVendors
+        vendors: nextVendors,
+        materials: nextMaterials
       };
     });
   };
@@ -215,17 +300,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setState(prev => {
       const oldPay = prev.payments.find(x => x.id === p.id);
       let nextVendors = [...prev.vendors];
-      
       if (oldPay) {
         nextVendors = nextVendors.map(v => v.id === oldPay.vendorId ? { ...v, balance: v.balance + oldPay.amount } : v);
       }
       nextVendors = nextVendors.map(v => v.id === p.vendorId ? { ...v, balance: Math.max(0, v.balance - p.amount) } : v);
-
-      return {
-        ...prev,
-        payments: prev.payments.map(x => x.id === p.id ? p : x),
-        vendors: nextVendors
-      };
+      return { ...prev, payments: prev.payments.map(x => x.id === p.id ? p : x), vendors: nextVendors };
     });
   };
 
@@ -237,11 +316,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (oldPay) {
         nextVendors = nextVendors.map(v => v.id === oldPay.vendorId ? { ...v, balance: v.balance + oldPay.amount } : v);
       }
-      return {
-        ...prev,
-        payments: prev.payments.filter(x => x.id !== id),
-        vendors: nextVendors
-      };
+      return { ...prev, payments: prev.payments.filter(x => x.id !== id), vendors: nextVendors };
     });
   };
 

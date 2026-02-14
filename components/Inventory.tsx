@@ -30,7 +30,8 @@ import {
   ClipboardList,
   BarChart4,
   ArrowDownLeft,
-  ArrowUpRight
+  ArrowUpRight,
+  Scale
 } from 'lucide-react';
 import { useApp } from '../AppContext';
 import { Material, MaterialUnit, StockHistoryEntry, Expense, Project, Vendor } from '../types';
@@ -647,33 +648,26 @@ export const Inventory: React.FC = () => {
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 sm:p-8 bg-slate-50/20 dark:bg-slate-900/10 no-scrollbar">
-               {(activeHistoryTab === 'all' || activeHistoryTab === 'usage') && (
+               {(activeHistoryTab === 'all' || activeHistoryTab === 'usage' || activeHistoryTab === 'purchases') && (
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                    {activeHistoryTab === 'all' && (
+                    {(activeHistoryTab === 'all' || activeHistoryTab === 'purchases') && (
                       <div className="bg-emerald-600 p-6 rounded-[2rem] text-white shadow-xl shadow-emerald-100 dark:shadow-none flex items-center justify-between">
                          <div>
-                            <p className="text-[10px] font-black uppercase tracking-widest opacity-70 mb-1">Total Inward Value</p>
-                            <p className="text-2xl font-black">{formatCurrency(historySummaryStats.inwardValue)}</p>
-                            <p className="text-[9px] font-bold uppercase mt-1 opacity-60">{historySummaryStats.totalInwardQty.toLocaleString()} {historyMaterial.unit}s Received</p>
+                            <p className="text-[10px] font-black uppercase tracking-widest opacity-70 mb-1">Total Quantity Inward</p>
+                            <p className="text-2xl font-black">{historySummaryStats.totalInwardQty.toLocaleString()} {historyMaterial.unit}s</p>
+                            <p className="text-[9px] font-bold uppercase mt-1 opacity-60">Procurement Value: {formatCurrency(historySummaryStats.inwardValue)}</p>
                          </div>
                          <ShoppingCart size={32} className="opacity-30" />
                       </div>
                     )}
-                    <div className="bg-blue-600 p-6 rounded-[2rem] text-white shadow-xl shadow-blue-100 dark:shadow-none flex items-center justify-between">
-                       <div>
-                          <p className="text-[10px] font-black uppercase tracking-widest opacity-70 mb-1">Total Consumption Value</p>
-                          <p className="text-2xl font-black">{formatCurrency(historySummaryStats.usageValue)}</p>
-                          <p className="text-[9px] font-bold uppercase mt-1 opacity-60">{historySummaryStats.totalUsageQty.toLocaleString()} {historyMaterial.unit}s Consumed</p>
-                       </div>
-                       <TrendingDown size={32} className="opacity-30" />
-                    </div>
-                    {activeHistoryTab === 'usage' && (
-                      <div className="bg-white dark:bg-slate-800 p-6 rounded-[2rem] border border-slate-200 dark:border-slate-700 shadow-sm flex items-center justify-between">
+                    {(activeHistoryTab === 'all' || activeHistoryTab === 'usage') && (
+                      <div className="bg-blue-600 p-6 rounded-[2rem] text-white shadow-xl shadow-blue-100 dark:shadow-none flex items-center justify-between">
                          <div>
-                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Impacted Sites</p>
-                            <p className="text-2xl font-black text-slate-900 dark:text-white">{usageStats.distinctProjects} Projects</p>
+                            <p className="text-[10px] font-black uppercase tracking-widest opacity-70 mb-1">Total Quantity Consumed</p>
+                            <p className="text-2xl font-black">{historySummaryStats.totalUsageQty.toLocaleString()} {historyMaterial.unit}s</p>
+                            <p className="text-[9px] font-bold uppercase mt-1 opacity-60">Financial Impact: {formatCurrency(historySummaryStats.usageValue)}</p>
                          </div>
-                         <BarChart4 size={32} className="text-blue-500 opacity-20" />
+                         <Scale size={32} className="opacity-30" />
                       </div>
                     )}
                  </div>

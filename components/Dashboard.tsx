@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo } from 'react';
 import { 
   Briefcase, 
@@ -85,6 +86,13 @@ export const Dashboard: React.FC = () => {
       .slice(0, 5);
   }, [materials]);
 
+  const handleOpenModal = () => {
+    setFormData({
+      name: '', client: '', location: '', budget: '', startDate: new Date().toISOString().split('T')[0], status: 'Active'
+    });
+    setShowModal(true);
+  };
+
   const handleCreateProject = (e: React.FormEvent) => {
     e.preventDefault();
     const newProject: Project = {
@@ -110,7 +118,7 @@ export const Dashboard: React.FC = () => {
         </div>
         <div className="flex gap-2">
           <button 
-            onClick={() => setShowModal(true)}
+            onClick={handleOpenModal}
             className="flex items-center gap-2 bg-[#003366] hover:bg-[#002244] text-white px-5 py-2.5 rounded-lg font-bold text-sm shadow-md transition-all active:scale-95"
           >
             <Plus size={18} /> New Project
@@ -230,7 +238,7 @@ export const Dashboard: React.FC = () => {
 
       {showModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
-          <div className="bg-white dark:bg-slate-800 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden shadow-2xl scale-100 transition-all duration-200">
             <div className="p-6 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-[#003366] text-white">
               <h2 className="text-lg font-black uppercase tracking-tighter">New Project Launch</h2>
               <button onClick={() => setShowModal(false)} className="p-2 hover:bg-white/10 rounded-lg"><X size={20} /></button>
@@ -238,21 +246,21 @@ export const Dashboard: React.FC = () => {
             <form onSubmit={handleCreateProject} className="p-8 space-y-5">
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase mb-1.5 block">Project Title</label>
-                <input type="text" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500" value={formData.name} onChange={e => setFormData(p => ({ ...p, name: e.target.value }))} required />
+                <input type="text" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 dark:bg-slate-700 dark:text-white dark:border-slate-600" value={formData.name} onChange={e => setFormData(p => ({ ...p, name: e.target.value }))} required />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase mb-1.5 block">Client</label>
-                  <input type="text" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500" value={formData.client} onChange={e => setFormData(p => ({ ...p, client: e.target.value }))} required />
+                  <input type="text" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 dark:bg-slate-700 dark:text-white dark:border-slate-600" value={formData.client} onChange={e => setFormData(p => ({ ...p, client: e.target.value }))} required />
                 </div>
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase mb-1.5 block">Location</label>
-                  <input type="text" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500" value={formData.location} onChange={e => setFormData(p => ({ ...p, location: e.target.value }))} required />
+                  <input type="text" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 dark:bg-slate-700 dark:text-white dark:border-slate-600" value={formData.location} onChange={e => setFormData(p => ({ ...p, location: e.target.value }))} required />
                 </div>
               </div>
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase mb-1.5 block">Total Budget (Rs.)</label>
-                <input type="number" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold" value={formData.budget} onChange={e => setFormData(p => ({ ...p, budget: e.target.value }))} required />
+                <input type="number" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-slate-900 dark:bg-slate-700 dark:text-white dark:border-slate-600" value={formData.budget} onChange={e => setFormData(p => ({ ...p, budget: e.target.value }))} required />
               </div>
               <button type="submit" className="w-full bg-[#FF5A00] hover:bg-[#E65100] text-white py-4 rounded-xl font-black uppercase tracking-widest shadow-lg shadow-orange-200 dark:shadow-none transition-all active:scale-95">
                 Launch System Entry

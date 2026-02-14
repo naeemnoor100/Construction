@@ -1,7 +1,6 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
-  Plus, Receipt, CreditCard, Calendar, X, Briefcase, Users, DollarSign, Tag, ChevronDown, Pencil, Trash2, Package, AlertCircle, RefreshCw, ShoppingCart, ArrowRightLeft, CheckCircle2, Landmark
+  Plus, Receipt, CreditCard, Calendar, X, Briefcase, Users, DollarSign, Tag, ChevronDown, Pencil, Trash2, Package, AlertCircle, RefreshCw, ShoppingCart, ArrowRightLeft, CheckCircle2, Landmark, Scale
 } from 'lucide-react';
 import { useApp } from '../AppContext';
 import { Expense, PaymentMethod, Material, Payment } from '../types';
@@ -26,7 +25,7 @@ export const ExpenseTracker: React.FC = () => {
     date: new Date().toISOString().split('T')[0], 
     amount: '', 
     notes: '', 
-    category: tradeCategories[0] || 'Overhead', 
+    category: 'Material', 
     paymentMethod: 'Bank' as PaymentMethod,
     materialId: '',
     materialQuantity: ''
@@ -63,7 +62,7 @@ export const ExpenseTracker: React.FC = () => {
       let sitePurchasedQty = sitePurchases.reduce((sum, h) => sum + h.quantity, 0);
       let siteUsedQty = siteUsages.reduce((sum, h) => sum + h.quantity, 0);
 
-      // Adjust for current edit
+      // Adjust for current edit: Restore quantity so user can see what was previously available
       if (editingExpense && editingExpense.projectId === formData.projectId && editingExpense.materialId === m.id) {
         if (!editingExpense.vendorId) { // It was a usage record
            siteUsedQty -= (editingExpense.materialQuantity || 0);
@@ -72,7 +71,7 @@ export const ExpenseTracker: React.FC = () => {
 
       const siteBalance = sitePurchasedQty - siteUsedQty;
 
-      if (siteBalance > 0) {
+      if (siteBalance > 0 || isPurchase) {
         const vIds = Array.from(new Set(sitePurchases.map(h => h.vendorId).filter(Boolean)));
         const vNames = vIds.map(vid => vendors.find(v => v.id === vid)?.name || 'Unknown Vendor');
         siteItems.push({ id: m.id, name: m.name, unit: m.unit, siteBalance, vendorNames: vNames });
@@ -89,11 +88,11 @@ export const ExpenseTracker: React.FC = () => {
 
   const handleApplyCost = () => {
     if (calculatedCost > 0) {
-      setFormData(prev => ({ ...prev, amount: calculatedCost.toString() }));
+      setFormData(prev => ({ ...prev, amount: calculatedCost.toFixed(2) }));
     }
   };
 
-  const handleCreateOrUpdateExpense = (e: React.FormEvent) => {
+  const handleCreateOrUpdateExpense = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (formData.category === 'Material' && formData.materialId && formData.materialQuantity && !isPurchase) {
@@ -123,9 +122,9 @@ export const ExpenseTracker: React.FC = () => {
     };
 
     if (editingExpense) {
-      updateExpense(expData);
+      await updateExpense(expData);
     } else {
-      addExpense(expData);
+      await addExpense(expData);
     }
 
     setShowModal(false);
@@ -140,7 +139,7 @@ export const ExpenseTracker: React.FC = () => {
       date: new Date().toISOString().split('T')[0], 
       amount: '', 
       notes: '', 
-      category: tradeCategories[0] || 'Overhead', 
+      category: 'Material', 
       paymentMethod: 'Bank',
       materialId: '',
       materialQuantity: ''
@@ -311,7 +310,7 @@ export const ExpenseTracker: React.FC = () => {
       {/* Quick Payment Modal */}
       {showQuickPayModal && selectedExpForPay && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
-          <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-w-lg shadow-2xl overflow-hidden mobile-sheet animate-in slide-in-from-bottom-8 duration-300">
+          <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-w-lg shadow-2xl overflow-hidden animate-in slide-in-from-bottom-8 duration-300">
              <div className="p-8 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-emerald-50/30 dark:bg-emerald-900/10 shrink-0">
                 <div className="flex gap-4 items-center">
                   <div className="p-4 bg-emerald-600 text-white rounded-2xl shadow-lg">
@@ -380,7 +379,7 @@ export const ExpenseTracker: React.FC = () => {
       {/* Expense Add/Edit Modal */}
       {showModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
-          <div className="bg-white dark:bg-slate-800 rounded-[3rem] w-full max-w-xl shadow-2xl overflow-hidden mobile-sheet animate-in slide-in-from-bottom-8 duration-300">
+          <div className="bg-white dark:bg-slate-800 rounded-[3rem] w-full max-w-xl shadow-2xl overflow-hidden animate-in slide-in-from-bottom-8 duration-300">
             <div className="p-8 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-50/50 dark:bg-slate-900 shrink-0">
               <div className="flex gap-4 items-center">
                  <div className="p-4 bg-red-600 text-white rounded-2xl shadow-lg shadow-red-100 dark:shadow-none">
@@ -398,7 +397,7 @@ export const ExpenseTracker: React.FC = () => {
                 <div className="space-y-1.5">
                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Project Site</label>
                    <select 
-                    className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none appearance-none" 
+                    className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none appearance-none transition-all focus:ring-2 focus:ring-blue-500" 
                     value={formData.projectId} 
                     onChange={(e) => setFormData(p => ({ ...p, projectId: e.target.value, materialId: '' }))}
                     required
@@ -410,7 +409,7 @@ export const ExpenseTracker: React.FC = () => {
                 <div className="space-y-1.5">
                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Cost Category</label>
                    <select 
-                    className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none appearance-none" 
+                    className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none appearance-none transition-all focus:ring-2 focus:ring-blue-500" 
                     value={formData.category} 
                     onChange={(e) => setFormData(p => ({ ...p, category: e.target.value, materialId: '' }))}
                   >
@@ -420,7 +419,7 @@ export const ExpenseTracker: React.FC = () => {
               </div>
 
               {formData.category === 'Material' && (
-                <div className={`p-6 rounded-[2rem] border space-y-4 animate-in fade-in slide-in-from-top-2 transition-colors ${isPurchase ? 'bg-emerald-50/50 dark:bg-emerald-900/10 border-emerald-100 dark:border-emerald-900/50' : 'bg-blue-50/50 dark:bg-blue-900/10 border-blue-100 dark:border-blue-900/50'}`}>
+                <div className={`p-6 rounded-[2rem] border space-y-4 transition-colors ${isPurchase ? 'bg-emerald-50/50 dark:bg-emerald-900/10 border-emerald-100 dark:border-emerald-900/50' : 'bg-blue-50/50 dark:bg-blue-900/10 border-blue-100 dark:border-blue-900/50'}`}>
                    <div className="flex items-center justify-between mb-1">
                       <div className="flex items-center gap-2">
                         {isPurchase ? <ShoppingCart size={16} className="text-emerald-600" /> : <Package size={16} className="text-blue-600" />}
@@ -433,23 +432,27 @@ export const ExpenseTracker: React.FC = () => {
                       </span>
                    </div>
                    <div className="space-y-4">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1 block">Target Material Asset</label>
                       <select 
                         className="w-full px-5 py-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold text-xs dark:text-white outline-none"
                         value={formData.materialId}
                         onChange={e => setFormData(p => ({ ...p, materialId: e.target.value }))}
                         disabled={!formData.projectId}
+                        required
                       >
                          <option value="">{formData.projectId ? 'Choose item...' : 'Select site first...'}</option>
                          {(siteSpecificInventory as any[]).map(m => (
                            <option key={m.id} value={m.id}>
-                             {m.name} {!isPurchase ? `• Bal: ${m.siteBalance?.toLocaleString()} ${m.unit} • Supp: ${m.vendorNames?.join(', ') || 'Direct'}` : `(${m.unit})`}
+                             {m.name} {!isPurchase ? `• Available Site Balance: ${m.siteBalance?.toLocaleString()} ${m.unit}` : `(${m.unit})`}
                            </option>
                          ))}
                       </select>
                       {formData.materialId && (
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                            <div className="space-y-1">
-                             <label className="text-[9px] font-black text-slate-400 uppercase px-1">Quantity</label>
+                             <label className="text-[9px] font-black text-slate-400 uppercase px-1 flex items-center gap-1.5">
+                               <Scale size={12} className="text-blue-500" /> Quantity in {selectedMaterial?.unit || 'Units'}
+                             </label>
                              <input 
                               type="number" 
                               step="0.01" 
@@ -457,22 +460,23 @@ export const ExpenseTracker: React.FC = () => {
                               placeholder="0.00"
                               value={formData.materialQuantity}
                               onChange={e => setFormData(p => ({ ...p, materialQuantity: e.target.value }))}
+                              required
                              />
                            </div>
-                           <div className="flex flex-col justify-center">
-                              <p className="text-[9px] font-black text-slate-400 uppercase mb-1 px-1">Inventory Value</p>
-                              <div className="flex items-center gap-2">
-                                <p className="text-lg font-black text-slate-900 dark:text-white">
+                           <div className="flex flex-col justify-center bg-white/50 dark:bg-black/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-700">
+                              <p className="text-[9px] font-black text-slate-400 uppercase mb-1 px-1">Inventory Value Sync</p>
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="text-base font-black text-slate-900 dark:text-white truncate">
                                   {formatCurrency(calculatedCost)}
                                 </p>
                                 {calculatedCost > 0 && (
                                   <button 
                                     type="button" 
                                     onClick={handleApplyCost}
-                                    className="p-1.5 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-lg hover:opacity-80 transition-all shadow-md active:scale-90"
-                                    title="Sync Amount"
+                                    className="p-2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-xl hover:opacity-80 transition-all shadow-md active:scale-90 flex items-center gap-2 text-[8px] font-black uppercase tracking-tighter"
+                                    title="Update Total Amount"
                                   >
-                                    <RefreshCw size={14} />
+                                    <RefreshCw size={12} /> SYNC
                                   </button>
                                 )}
                               </div>
@@ -486,8 +490,8 @@ export const ExpenseTracker: React.FC = () => {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Billing Vendor</label>
-                   <select className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none appearance-none" value={formData.vendorId} onChange={(e) => setFormData(p => ({ ...p, vendorId: e.target.value }))}>
-                    <option value="">Self / Direct Cost (Usage)</option>
+                   <select className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none appearance-none transition-all focus:ring-2 focus:ring-blue-500" value={formData.vendorId} onChange={(e) => setFormData(p => ({ ...p, vendorId: e.target.value }))}>
+                    <option value="">Self / Direct Site Cost (Usage)</option>
                     {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
                   </select>
                 </div>
@@ -498,7 +502,7 @@ export const ExpenseTracker: React.FC = () => {
                        <button
                          key={m} type="button"
                          onClick={() => setFormData(p => ({ ...p, paymentMethod: m }))}
-                         className={`py-3.5 rounded-xl text-[9px] font-black uppercase tracking-widest border transition-all ${formData.paymentMethod === m ? 'bg-slate-900 border-slate-900 text-white shadow-lg' : 'bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-500'}`}
+                         className={`py-3.5 rounded-xl text-[9px] font-black uppercase tracking-widest border transition-all ${formData.paymentMethod === m ? 'bg-slate-900 border-slate-900 text-white shadow-lg' : 'bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100'}`}
                        >{m}</button>
                      ))}
                    </div>
@@ -508,7 +512,7 @@ export const ExpenseTracker: React.FC = () => {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Expense Date</label>
-                  <input type="date" className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={formData.date} onChange={(e) => setFormData(p => ({ ...p, date: e.target.value }))} required />
+                  <input type="date" className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none focus:ring-2 focus:ring-blue-500" value={formData.date} onChange={(e) => setFormData(p => ({ ...p, date: e.target.value }))} required />
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Total Bill Amount (Rs.)</label>
@@ -526,7 +530,7 @@ export const ExpenseTracker: React.FC = () => {
 
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Memo / Invoice Description</label>
-                <textarea rows={2} placeholder="e.g. Bulk cement procurement..." className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={formData.notes} onChange={(e) => setFormData(p => ({ ...p, notes: e.target.value }))}></textarea>
+                <textarea rows={2} placeholder="e.g. Bulk cement procurement..." className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none focus:ring-2 focus:ring-blue-500" value={formData.notes} onChange={(e) => setFormData(p => ({ ...p, notes: e.target.value }))}></textarea>
               </div>
 
               <div className="flex gap-4 pt-4">
@@ -535,7 +539,7 @@ export const ExpenseTracker: React.FC = () => {
                   type="submit" 
                   className={`flex-1 py-4 rounded-[1.5rem] font-black shadow-2xl transition-all active:scale-95 text-sm uppercase tracking-widest bg-red-600 text-white shadow-red-100 dark:shadow-none`}
                 >
-                  {editingExpense ? 'Update Registry' : (isPurchase ? 'Authorize Purchase' : 'Authorize Consumption')}
+                  {editingExpense ? 'Finalize Changes' : (isPurchase ? 'Authorize Purchase' : 'Authorize Consumption')}
                 </button>
               </div>
             </form>
