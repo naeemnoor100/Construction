@@ -10,7 +10,7 @@ export default defineConfig({
   define: {
     // Explicitly shim process.env for browser compatibility
     'process.env.API_KEY': JSON.stringify(process.env.API_KEY || ''),
-    'process.env': '{}'
+    'process.env': JSON.stringify({})
   },
   resolve: {
     // CRITICAL: This prevents the "useRef" null error by forcing 
