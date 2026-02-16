@@ -17,6 +17,7 @@ import {
   Receipt,
   CheckCircle2,
   ArrowRight,
+  ArrowRightLeft,
   TrendingUp,
   Landmark,
   Calendar,
@@ -115,6 +116,7 @@ export const Inventory: React.FC = () => {
   const [usageData, setUsageData] = useState({
     materialId: '', 
     vendorId: '', 
+    batchId: '', 
     projectId: projects[0]?.id || '', 
     quantity: '', 
     date: new Date().toISOString().split('T')[0], 
@@ -127,35 +129,51 @@ export const Inventory: React.FC = () => {
 
   const relevantMaterialsForSite = useMemo(() => {
     if (!usageData.projectId) return [];
-    const results: any[] = [];
+    const batches: any[] = [];
+    
     materials.forEach(mat => {
-      const allHistory = mat.history || [];
-      const purchaseEntries = allHistory.filter(h => h.type === 'Purchase');
-      if (purchaseEntries.length === 0) return;
-      const vendorIds = Array.from(new Set(purchaseEntries.map(h => h.vendorId).filter(Boolean)));
-      vendorIds.forEach(vid => {
-        const vendor = vendors.find(v => v.id === vid);
-        const vName = vendor?.name || 'Standard Supplier';
-        const sitePurchases = allHistory.filter(h => h.type === 'Purchase' && h.vendorId === vid && h.projectId === usageData.projectId);
-        const siteUsages = allHistory.filter(h => h.type === 'Usage' && h.vendorId === vid && h.projectId === usageData.projectId);
-        const sitePurchasedQty = sitePurchases.reduce((sum, h) => sum + h.quantity, 0);
-        const siteUsedQty = siteUsages.reduce((sum, h) => sum + h.quantity, 0);
-        const netSiteAvailable = sitePurchasedQty - siteUsedQty;
-        const globalPurchased = allHistory.filter(h => h.type === 'Purchase' && h.vendorId === vid).reduce((sum, h) => sum + h.quantity, 0);
-        const globalUsed = allHistory.filter(h => h.type === 'Usage' && h.vendorId === vid).reduce((sum, h) => sum + h.quantity, 0);
-        const netGlobalAvailable = globalPurchased - globalUsed;
-        if (netGlobalAvailable <= 0 && netSiteAvailable <= 0) return;
-        results.push({ ...mat, displayVendorId: vid, displayVendorName: vName, availableQty: netSiteAvailable, globalAvailable: netGlobalAvailable, priority: netSiteAvailable > 0 ? 1 : 0 });
+      const history = mat.history || [];
+      const inwardEntries = history.filter(h => (h.type === 'Purchase' || h.type === 'Transfer') && h.quantity > 0);
+      
+      inwardEntries.forEach(inward => {
+        const batchId = inward.id.replace('sh-exp-', '');
+        const deductionsAgainstThisBatch = history.filter(h => 
+          h.parentPurchaseId === batchId && h.quantity < 0
+        );
+        const totalDeductedFromBatch = Math.abs(deductionsAgainstThisBatch.reduce((sum, d) => sum + d.quantity, 0));
+        const availableInBatch = inward.quantity - totalDeductedFromBatch;
+
+        if (availableInBatch > 0) {
+          const vendor = vendors.find(v => v.id === inward.vendorId);
+          const vName = vendor?.name || (inward.type === 'Transfer' ? 'Inbound Transfer' : 'Standard Supplier');
+          batches.push({
+            id: mat.id,
+            name: mat.name,
+            unit: mat.unit,
+            batchId: batchId,
+            vendorName: vName,
+            vendorId: inward.vendorId,
+            unitPrice: inward.unitPrice || mat.costPerUnit,
+            available: availableInBatch,
+            isLocal: inward.projectId === usageData.projectId
+          });
+        }
       });
     });
-    return results.sort((a, b) => {
-      if (a.priority !== b.priority) return b.priority - a.priority;
-      return (b.availableQty || b.globalAvailable) - (a.availableQty || a.globalAvailable);
-    });
+
+    return batches.sort((a, b) => (a.isLocal === b.isLocal ? 0 : a.isLocal ? -1 : 1));
   }, [materials, usageData.projectId, vendors]);
 
+  const selectedBatchForTotal = useMemo(() => {
+    return relevantMaterialsForSite.find(b => 
+      b.id === usageData.materialId && b.batchId === usageData.batchId
+    );
+  }, [relevantMaterialsForSite, usageData.materialId, usageData.batchId]);
+
+  const currentTotalValue = (selectedBatchForTotal?.unitPrice || 0) * (parseFloat(usageData.quantity) || 0);
+
   const handleOpenUsageModal = (materialId?: string, projectId?: string) => {
-    setUsageData({ materialId: materialId || '', vendorId: '', projectId: projectId || projects[0]?.id || '', quantity: '', date: new Date().toISOString().split('T')[0], notes: '' });
+    setUsageData({ materialId: materialId || '', vendorId: '', batchId: '', projectId: projectId || projects[0]?.id || '', quantity: '', date: new Date().toISOString().split('T')[0], notes: '' });
     setShowUsageModal(true);
   };
 
@@ -176,23 +194,31 @@ export const Inventory: React.FC = () => {
   const filteredMaterials = useMemo(() => {
     let result = materials.map(mat => {
       let siteBalance = mat.totalPurchased - mat.totalUsed;
+      let stockValue = 0;
       let hasProjectLink = true;
-      if (projectFilter !== 'All') {
-        const sitePurchases = mat.history?.filter(h => h.type === 'Purchase' && h.projectId === projectFilter) || [];
-        const siteUsages = mat.history?.filter(h => h.type === 'Usage' && h.projectId === projectFilter) || [];
-        const totalSitePurchased = sitePurchases.reduce((sum, h) => sum + h.quantity, 0);
-        const totalSiteUsed = siteUsages.reduce((sum, h) => sum + h.quantity, 0);
-        siteBalance = totalSitePurchased - totalSiteUsed;
-        hasProjectLink = totalSitePurchased > 0;
+
+      const history = mat.history || [];
+      if (projectFilter === 'All') {
+        // Global Stock Value: sum of all quantity * unitPrice
+        stockValue = history.reduce((sum, h) => sum + (h.quantity * (h.unitPrice || mat.costPerUnit)), 0);
+      } else {
+        const siteEntries = history.filter(h => h.projectId === projectFilter);
+        siteBalance = siteEntries.reduce((sum, h) => sum + h.quantity, 0);
+        // Site Stock Value: sum of site activity quantity * unitPrice
+        stockValue = siteEntries.reduce((sum, h) => sum + (h.quantity * (h.unitPrice || mat.costPerUnit)), 0);
+        hasProjectLink = siteEntries.some(h => h.quantity > 0);
       }
-      return { ...mat, siteBalance, hasProjectLink };
+
+      return { ...mat, siteBalance, stockValue, hasProjectLink };
     });
+
     result = result.filter(mat => {
       const matchesSearch = mat.name.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesProject = projectFilter === 'All' || mat.hasProjectLink;
       const matchesVendor = vendorFilter === 'All' || mat.history?.some(h => h.vendorId === vendorFilter);
       return matchesSearch && matchesProject && matchesVendor;
     });
+
     return result.sort((a, b) => {
       if (inventorySort === 'name') return a.name.localeCompare(b.name);
       if (inventorySort === 'stock-low') return a.siteBalance - b.siteBalance;
@@ -205,8 +231,10 @@ export const Inventory: React.FC = () => {
   const filteredHistory = useMemo(() => {
     if (!historyMaterial || !historyMaterial.history) return [];
     let result = historyMaterial.history.filter(entry => {
+      if (entry.type === 'Transfer') return false;
       if (activeHistoryTab === 'purchases' && entry.type !== 'Purchase') return false;
       if (activeHistoryTab === 'usage' && entry.type !== 'Usage') return false;
+      
       const projectName = projects.find(p => p.id === entry.projectId)?.name || '';
       const vendorName = vendors.find(v => v.id === entry.vendorId)?.name || '';
       const search = historySearch.toLowerCase();
@@ -240,7 +268,6 @@ export const Inventory: React.FC = () => {
     setProcureData({ materialId: '', newName: '', vendorId: vendors[0]?.id || '', projectId: projects[0]?.id || '', quantity: '', unit: stockingUnits[0] || 'Bag', costPerUnit: '', date: new Date().toISOString().split('T')[0], note: '' });
   };
 
-  // Bulk Inward Row Handlers
   const addBulkRow = () => setBulkRows([...bulkRows, { id: Date.now().toString(), materialId: '', quantity: '', unitPrice: '', vendorId: bulkGlobalVendor, projectId: bulkGlobalProject }]);
   const removeBulkRow = (id: string) => setBulkRows(bulkRows.filter(r => r.id !== id));
   const updateBulkRow = (id: string, field: keyof BulkRow, value: string) => {
@@ -286,20 +313,36 @@ export const Inventory: React.FC = () => {
   const handleRecordUsage = async (e: React.FormEvent) => {
     e.preventDefault();
     const qty = parseFloat(usageData.quantity) || 0;
-    const target = materials.find(m => m.id === usageData.materialId);
-    const vendorId = usageData.vendorId;
-    if (target && vendorId) {
-      const selection = relevantMaterialsForSite.find(r => r.id === target.id && r.displayVendorId === vendorId);
-      const available = selection ? (selection.availableQty > 0 ? selection.availableQty : selection.globalAvailable) : 0;
-      if (available < qty) {
-        alert(`Error: Insufficient stock. (Available: ${available} ${target.unit})`);
+    
+    const selectedBatch = relevantMaterialsForSite.find(b => 
+      b.id === usageData.materialId && b.batchId === usageData.batchId
+    );
+
+    if (selectedBatch) {
+      if (selectedBatch.available < qty) {
+        alert(`Error: Insufficient stock in this batch. (Available: ${selectedBatch.available} ${selectedBatch.unit})`);
         return;
       }
-      const consumptionValue = qty * target.costPerUnit;
-      await addExpense({ id: 'e-usage-' + Date.now(), date: usageData.date, projectId: usageData.projectId, amount: consumptionValue, paymentMethod: 'Bank', category: 'Material', materialId: target.id, vendorId: vendorId, materialQuantity: qty, inventoryAction: 'Usage', notes: usageData.notes || `Usage: ${qty} ${target.unit} of ${target.name}` });
+      
+      const consumptionValue = qty * selectedBatch.unitPrice;
+
+      await addExpense({ 
+        id: 'e-usage-' + Date.now(), 
+        date: usageData.date, 
+        projectId: usageData.projectId, 
+        amount: consumptionValue, 
+        paymentMethod: 'Bank', 
+        category: 'Material', 
+        materialId: selectedBatch.id, 
+        vendorId: selectedBatch.vendorId, 
+        materialQuantity: -qty, 
+        inventoryAction: 'Usage', 
+        parentPurchaseId: selectedBatch.batchId,
+        notes: usageData.notes || `Usage: ${qty} ${selectedBatch.unit} of ${selectedBatch.name}` 
+      });
       setShowUsageModal(false);
     } else {
-      alert("Error: Please select material stream.");
+      alert("Error: Please select a valid material batch.");
     }
   };
 
@@ -308,7 +351,7 @@ export const Inventory: React.FC = () => {
     const expenseId = entryId.startsWith('sh-exp-') ? entryId.replace('sh-exp-', '') : null;
     if (!confirm("Confirm Sync: This will delete the financial expense and revert material stock. Continue?")) return;
     if (expenseId) { await deleteExpense(expenseId); const updated = materials.find(m => m.id === material.id); if (updated) setHistoryMaterial(updated); }
-    else { const newHistory = material.history?.filter(h => h.id !== entryId) || []; const totalPurchased = newHistory.filter(h => h.type === 'Purchase').reduce((sum, h) => sum + h.quantity, 0); const totalUsed = newHistory.filter(h => h.type === 'Usage').reduce((sum, h) => sum + h.quantity, 0); updateMaterial({ ...material, totalPurchased, totalUsed, history: newHistory }); setHistoryMaterial({ ...material, totalPurchased, totalUsed, history: newHistory }); }
+    else { const newHistory = material.history?.filter(h => h.id !== entryId) || []; const totalPurchased = newHistory.filter(h => h.type === 'Purchase').reduce((sum, h) => sum + h.quantity, 0); const totalUsed = Math.abs(newHistory.filter(h => h.type === 'Usage').reduce((sum, h) => sum + h.quantity, 0)); updateMaterial({ ...material, totalPurchased, totalUsed, history: newHistory }); setHistoryMaterial({ ...material, totalPurchased, totalUsed, history: newHistory }); }
   };
 
   const handleEditHistorySubmit = async (e: React.FormEvent) => {
@@ -321,7 +364,17 @@ export const Inventory: React.FC = () => {
     if (expenseId) {
       const oldExp = expenses.find(x => x.id === expenseId);
       if (oldExp) {
-        await updateExpense({ ...oldExp, date: historyEditFormData.date, projectId: historyEditFormData.projectId || oldExp.projectId, vendorId: historyEditFormData.vendorId || oldExp.vendorId, amount: newQty * (oldExp.inventoryAction === 'Usage' ? material.costPerUnit : newPrice), materialId: material.id, materialQuantity: newQty, notes: historyEditFormData.note });
+        await updateExpense({ 
+          ...oldExp, 
+          date: historyEditFormData.date, 
+          projectId: historyEditFormData.projectId || oldExp.projectId, 
+          vendorId: historyEditFormData.vendorId || oldExp.vendorId, 
+          amount: Math.abs(newQty) * (oldExp.inventoryAction === 'Usage' ? (newPrice || material.costPerUnit) : newPrice), 
+          materialId: material.id, 
+          materialQuantity: newQty, 
+          notes: historyEditFormData.note,
+          unitPrice: newPrice 
+        });
         const updated = materials.find(m => m.id === material.id);
         if (updated) setHistoryMaterial(updated);
       }
@@ -330,8 +383,8 @@ export const Inventory: React.FC = () => {
         if (h.id === oldEntry.id) { return { ...h, quantity: newQty, unitPrice: newPrice, projectId: historyEditFormData.projectId || undefined, vendorId: historyEditFormData.vendorId || undefined, date: historyEditFormData.date, note: historyEditFormData.note }; }
         return h;
       }) || [];
-      const totalPurchased = newHistory.filter(h => h.type === 'Purchase').reduce((sum, h) => sum + h.quantity, 0);
-      const totalUsed = newHistory.filter(h => h.type === 'Usage').reduce((sum, h) => sum + h.quantity, 0);
+      const totalPurchased = newHistory.filter(h => h.type === 'Purchase' && h.quantity > 0).reduce((sum, h) => sum + h.quantity, 0);
+      const totalUsed = Math.abs(newHistory.filter(h => h.type === 'Usage' && h.quantity < 0).reduce((sum, h) => sum + h.quantity, 0));
       updateMaterial({ ...material, totalPurchased, totalUsed, history: newHistory });
       setHistoryMaterial({ ...material, totalPurchased, totalUsed, history: newHistory });
     }
@@ -404,7 +457,7 @@ export const Inventory: React.FC = () => {
                         </div>
                       </div>
                     </td>
-                    <td className="px-8 py-5 text-xs font-black text-slate-600 dark:text-slate-400">{formatCurrency(remaining * mat.costPerUnit)}</td>
+                    <td className="px-8 py-5 text-xs font-black text-slate-600 dark:text-slate-400">{formatCurrency(mat.stockValue)}</td>
                     <td className="px-8 py-5"><span className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 ${remaining < 10 ? 'bg-red-50 text-red-600 border-red-100 dark:bg-red-900/10 dark:border-red-900/20' : 'bg-emerald-50 text-emerald-600 border-emerald-100 dark:bg-emerald-900/20 dark:border-emerald-800'}`}>{remaining.toLocaleString()} {mat.unit}s {isProjectFiltered ? 'at Site' : 'Global'}</span></td>
                     <td className="px-8 py-5 text-right">
                        <div className="flex justify-end gap-2 items-center">
@@ -494,7 +547,9 @@ export const Inventory: React.FC = () => {
                        {!bulkGlobalProject && (
                           <div className="md:col-span-2 space-y-1">
                             <label className="text-[8px] font-black text-slate-400 uppercase px-1">Site</label>
-                            <select className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 rounded-lg text-xs font-bold dark:text-white" value={row.projectId} onChange={e => updateBulkRow(row.id, 'projectId', e.target.value)}>
+                            <select className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 rounded-lg text-xs font-bold dark:text-white" value={row.projectId} onChange={e => {
+                               updateBulkRow(row.id, 'projectId', e.target.value);
+                            }}>
                                <option value="">Select Site...</option>
                                {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                             </select>
@@ -528,7 +583,7 @@ export const Inventory: React.FC = () => {
       {/* Procure Modal */}
       {showProcureModal && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
-           <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-w-xl shadow-2xl overflow-hidden mobile-sheet animate-in slide-in-from-bottom-8 duration-300">
+           <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-xl shadow-2xl overflow-hidden mobile-sheet animate-in slide-in-from-bottom-8 duration-300">
               <div className="p-8 border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 flex justify-between items-center shrink-0">
                  <div className="flex gap-4 items-center">
                    <div className="p-4 bg-slate-900 dark:bg-slate-700 text-white rounded-2xl shadow-lg">
@@ -626,7 +681,7 @@ export const Inventory: React.FC = () => {
                  <div className="w-14 h-14 bg-slate-900 dark:bg-slate-700 text-white rounded-[1.5rem] flex items-center justify-center font-black text-2xl shadow-xl">{historyMaterial.name.charAt(0)}</div>
                  <div>
                     <h2 className="text-2xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">Stock Activity History</h2>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{historyMaterial.name} Ledger • Current Stock: {(historyMaterial.totalPurchased - historyMaterial.totalUsed).toLocaleString()} {historyMaterial.unit}s</p>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{historyMaterial.name} Ledger • Current Global Stock: {(historyMaterial.totalPurchased - historyMaterial.totalUsed).toLocaleString()} {historyMaterial.unit}s</p>
                  </div>
                </div>
                <button onClick={() => setHistoryMaterial(null)} className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"><X size={36} /></button>
@@ -666,27 +721,37 @@ export const Inventory: React.FC = () => {
                           const vendor = vendors.find(v => v.id === entry.vendorId);
                           const isLocked = payments.some(p => p.materialBatchId === entry.id);
                           const isLinkedExpense = entry.id.startsWith('sh-exp-');
+                          const activeUnitPrice = entry.unitPrice || historyMaterial.costPerUnit;
                           return (
                             <tr key={entry.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/50 transition-colors group">
                               <td className="px-8 py-5 text-xs font-bold text-slate-500 dark:text-slate-400">{new Date(entry.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
                               <td className="px-8 py-5">
                                 <div className="flex items-center gap-2">
-                                  {entry.type === 'Purchase' ? (<div className="p-1.5 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg text-emerald-600"><ShoppingCart size={12} /></div>) : (<div className="p-1.5 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-blue-600"><TrendingDown size={12} /></div>)}
-                                  <span className={`text-[10px] font-black uppercase tracking-widest ${entry.type === 'Purchase' ? 'text-emerald-600' : 'text-blue-600'}`}>{entry.type}</span>
+                                  {entry.type === 'Purchase' ? (<div className="p-1.5 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg text-emerald-600"><ShoppingCart size={12} /></div>) : entry.type === 'Transfer' ? (<div className="p-1.5 bg-amber-50 dark:bg-amber-900/20 rounded-lg text-amber-600"><ArrowRightLeft size={12} /></div>) : (<div className="p-1.5 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-blue-600"><TrendingDown size={12} /></div>)}
+                                  <span className={`text-[10px] font-black uppercase tracking-widest ${entry.type === 'Purchase' ? 'text-emerald-600' : entry.type === 'Transfer' ? 'text-amber-600' : 'text-blue-600'}`}>{entry.type}</span>
                                   {isLinkedExpense && <span className="bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-tighter text-slate-400 border border-slate-200 dark:border-slate-600 flex items-center gap-1"><Link size={8} /> Synced</span>}
-                                  {isLocked && <Lock size={10} className="text-amber-500" title="Locked due to payment" />}
+                                  {isLocked && <span title="Locked due to payment"><Lock size={10} className="text-amber-500" /></span>}
                                 </div>
                                 <p className="text-[11px] text-slate-700 dark:text-slate-300 font-semibold mt-1">{entry.note}</p>
                               </td>
-                              <td className="px-8 py-5"><span className={`text-sm font-black ${entry.type === 'Purchase' ? 'text-emerald-600' : 'text-blue-600'}`}>{entry.type === 'Purchase' ? '+' : '-'}{entry.quantity.toLocaleString()} {historyMaterial.unit}</span></td>
-                              <td className="px-8 py-5 text-right font-bold text-slate-600 dark:text-slate-400">{formatCurrency(entry.unitPrice || historyMaterial.costPerUnit)}</td>
-                              <td className="px-8 py-5 text-right font-black text-slate-800 dark:text-slate-200">{formatCurrency(entry.quantity * (entry.unitPrice || historyMaterial.costPerUnit))}</td>
+                              <td className="px-8 py-5"><span className={`text-sm font-black ${entry.quantity > 0 ? 'text-emerald-600' : 'text-blue-600'}`}>{entry.quantity > 0 ? '+' : ''}{entry.quantity.toLocaleString()} {historyMaterial.unit}</span></td>
+                              <td className="px-8 py-5 text-right font-bold text-slate-600 dark:text-slate-400">
+                                <div className="flex flex-col items-end">
+                                  <span className="text-xs">{formatCurrency(activeUnitPrice)}</span>
+                                  {entry.vendorId && (
+                                    <span className="text-[8px] font-black uppercase text-blue-500 flex items-center gap-1"><Link size={8}/> Batch Linked</span>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="px-8 py-5 text-right font-black text-slate-800 dark:text-slate-200">
+                                {formatCurrency(Math.abs(entry.quantity) * activeUnitPrice)}
+                              </td>
                               <td className="px-8 py-5"><div className="flex flex-col gap-1">{project && <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-tight flex items-center gap-1"><Briefcase size={12} className="text-blue-500"/> {project.name}</span>}{vendor && <span className="text-[11px] font-black text-slate-800 dark:text-slate-200 uppercase tracking-tighter flex items-center gap-1"><Users size={12} className="text-emerald-500"/> {vendor.name}</span>}</div></td>
-                              <td className="px-8 py-5 text-right"><div className="flex justify-end gap-1"><button onClick={() => { setEditingHistoryEntry({ material: historyMaterial, entry }); setHistoryEditFormData({ quantity: entry.quantity.toString(), unitPrice: (entry.unitPrice || historyMaterial.costPerUnit).toString(), projectId: entry.projectId || '', vendorId: entry.vendorId || '', date: entry.date, note: entry.note || '' }); setShowEditHistoryModal(true); }} className="p-2 text-slate-300 hover:text-blue-600 transition-colors"><Pencil size={16} /></button><button onClick={() => handleDeleteHistoryEntry(historyMaterial, entry.id)} className="p-2 text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={16} /></button></div></td>
+                              <td className="px-8 py-5 text-right"><div className="flex justify-end gap-1"><button onClick={() => { setEditingHistoryEntry({ material: historyMaterial, entry }); setHistoryEditFormData({ quantity: entry.quantity.toString(), unitPrice: activeUnitPrice.toString(), projectId: entry.projectId || '', vendorId: entry.vendorId || '', date: entry.date, note: entry.note || '' }); setShowEditHistoryModal(true); }} className="p-2 text-slate-300 hover:text-blue-600 transition-colors"><Pencil size={16} /></button><button onClick={() => handleDeleteHistoryEntry(historyMaterial, entry.id)} className="p-2 text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={16} /></button></div></td>
                             </tr>
                           ))}
-                        </tbody>
-                      </table>
+                      </tbody>
+                    </table>
                  </div>
                </div>
             </div>
@@ -697,7 +762,7 @@ export const Inventory: React.FC = () => {
       {/* Edit History Modal */}
       {showEditHistoryModal && editingHistoryEntry && (
         <div className="fixed inset-0 z-[160] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
-           <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-w-xl shadow-2xl overflow-hidden mobile-sheet animate-in slide-in-from-bottom-8 duration-300">
+           <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-xl shadow-2xl overflow-hidden mobile-sheet animate-in slide-in-from-bottom-8 duration-300">
               <div className="p-8 border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 flex justify-between items-center shrink-0">
                  <div className="flex items-center gap-3">
                    <h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">Edit Activity Log</h2>
@@ -710,7 +775,7 @@ export const Inventory: React.FC = () => {
                  {editingHistoryEntry.entry.id.startsWith('sh-exp-') && (<div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-2xl border border-blue-100 dark:border-blue-900/30 flex items-start gap-3"><Link size={18} className="text-blue-600 shrink-0 mt-0.5" /><p className="text-[11px] font-bold text-blue-800 dark:text-blue-200 leading-relaxed"><strong>Ledger Sync Active:</strong> Changes will automatically update the linked Project Expense and Site Budget.</p></div>)}
                  <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1.5">
-                       <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Quantity</label>
+                       <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Quantity (Positive inward, Negative outward)</label>
                        <input type="number" step="0.01" required disabled={isHistoryEntryLocked} className={`w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white ${isHistoryEntryLocked ? 'opacity-50 cursor-not-allowed' : ''}`} value={historyEditFormData.quantity} onChange={e => setHistoryEditFormData(p => ({ ...p, quantity: e.target.value }))} />
                     </div>
                     <div className="space-y-1.5">
@@ -748,9 +813,62 @@ export const Inventory: React.FC = () => {
                  <button onClick={() => setShowUsageModal(false)} className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"><X size={32} /></button>
               </div>
               <form onSubmit={handleRecordUsage} className="p-8 space-y-5 overflow-y-auto no-scrollbar max-h-[75vh] pb-safe">
-                 <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Project Site Allocation</label><select className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none appearance-none" value={usageData.projectId} onChange={e => setUsageData(p => ({ ...p, projectId: e.target.value, materialId: '', vendorId: '' }))} required><option value="">Select Project Site...</option>{projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
-                 <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Material to Deduct (Net stock per vendor)</label><select className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none appearance-none disabled:opacity-50 text-xs" value={`${usageData.materialId}|${usageData.vendorId}`} onChange={e => { const [mId, vId] = e.target.value.split('|'); setUsageData(p => ({ ...p, materialId: mId, vendorId: vId })); }} disabled={!usageData.projectId} required><option value="|">{usageData.projectId ? (relevantMaterialsForSite.length > 0 ? 'Choose stock stream...' : 'No stock found') : 'Select site first...'}</option>{relevantMaterialsForSite.map((m, idx) => { const isLocal = m.priority === 1; const currentStock = isLocal ? m.availableQty : m.globalAvailable; return (<option key={`${m.id}-${m.displayVendorId}-${idx}`} value={`${m.id}|${m.displayVendorId}`} className={isLocal ? 'text-emerald-600 font-black' : 'text-blue-500 font-medium'}>{m.name} ({m.unit}) • Vendor: {m.displayVendorName} • Available: {currentStock.toLocaleString()}</option>); })}</select><div className="flex gap-4 px-1 mt-1"><div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-emerald-500"></div><span className="text-[9px] font-black uppercase text-emerald-600">At This Site</span></div><div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-blue-500"></div><span className="text-[9px] font-black uppercase text-blue-500">Global Pool</span></div></div></div>
-                 <div className="grid grid-cols-2 gap-4"><div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Usage Quantity</label><input type="number" required step="0.01" className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-black dark:text-white outline-none" value={usageData.quantity} onChange={e => setUsageData(p => ({ ...p, quantity: e.target.value }))} placeholder="0.00" /></div><div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Consumption Date</label><input type="date" required className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={usageData.date} onChange={e => setUsageData(p => ({ ...p, date: e.target.value }))} /></div></div>
+                 <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Project Site Allocation</label><select className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none appearance-none" value={usageData.projectId} onChange={e => setUsageData(p => ({ ...p, projectId: e.target.value, materialId: '', batchId: '' }))} required><option value="">Select Project Site...</option>{projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
+                 
+                 <div className="space-y-1.5">
+                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Material Batch (Material / Vendor / Unit Price / Available)</label>
+                   <select 
+                    className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none appearance-none disabled:opacity-50 text-xs" 
+                    value={`${usageData.materialId}|${usageData.batchId}`} 
+                    onChange={e => { 
+                      const [mId, bId] = e.target.value.split('|'); 
+                      setUsageData(p => ({ ...p, materialId: mId, batchId: bId })); 
+                    }} 
+                    disabled={!usageData.projectId} 
+                    required
+                  >
+                    <option value="|">{usageData.projectId ? (relevantMaterialsForSite.length > 0 ? 'Choose stock batch...' : 'No stock found') : 'Select site first...'}</option>
+                    {relevantMaterialsForSite.map((batch, idx) => {
+                      return (
+                        <option 
+                          key={`${batch.id}-${batch.batchId}-${idx}`} 
+                          value={`${batch.id}|${batch.batchId}`}
+                          className={batch.isLocal ? 'text-emerald-600 font-black' : 'text-blue-500 font-medium'}
+                        >
+                          {batch.name} / {batch.vendorName} / {formatCurrency(batch.unitPrice)} / {batch.available.toLocaleString()} {batch.unit}
+                        </option>
+                      );
+                    })}
+                  </select>
+                  <div className="flex gap-4 px-1 mt-1">
+                    <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-emerald-500"></div><span className="text-[9px] font-black uppercase text-emerald-600">Local Batch (at this site)</span></div>
+                    <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-blue-500"></div><span className="text-[9px] font-black uppercase text-blue-500">Global Pool (other sites)</span></div>
+                  </div>
+                 </div>
+
+                 <div className="grid grid-cols-2 gap-4">
+                   <div className="space-y-1.5">
+                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Usage Quantity</label>
+                     <input type="number" required step="0.01" className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-black dark:text-white outline-none" value={usageData.quantity} onChange={e => setUsageData(p => ({ ...p, quantity: e.target.value }))} placeholder="0.00" />
+                   </div>
+                   <div className="space-y-1.5">
+                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Consumption Date</label>
+                     <input type="date" required className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={usageData.date} onChange={e => setUsageData(p => ({ ...p, date: e.target.value }))} />
+                   </div>
+                 </div>
+
+                 {usageData.materialId && usageData.quantity && (
+                    <div className="p-5 bg-blue-50 dark:bg-blue-900/20 rounded-[1.8rem] border-2 border-blue-100 dark:border-blue-800 flex justify-between items-center animate-in fade-in slide-in-from-top-2">
+                       <div>
+                          <p className="text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest mb-0.5">Total Consumption Value</p>
+                          <p className="text-2xl font-black text-blue-700 dark:text-blue-300">{formatCurrency(currentTotalValue)}</p>
+                       </div>
+                       <div className="p-3 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-blue-100 dark:border-slate-700 text-blue-600">
+                          <DollarSign size={24} />
+                       </div>
+                    </div>
+                 )}
+
                  <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Usage Note / Area</label><textarea rows={2} className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={usageData.notes} onChange={e => setUsageData(p => ({ ...p, notes: e.target.value }))} placeholder="e.g. Ground floor columns..."></textarea></div>
                  <div className="flex gap-4 pt-6"><button type="button" onClick={() => setShowUsageModal(false)} className="flex-1 bg-slate-100 dark:bg-slate-700 py-4 rounded-[1.5rem] font-bold text-sm uppercase tracking-widest text-slate-500">Cancel</button><button type="submit" className="flex-1 bg-blue-600 text-white py-4 rounded-[1.5rem] font-black shadow-2xl active:scale-95 text-sm uppercase tracking-widest">Authorize Consumption</button></div>
               </form>
@@ -758,7 +876,7 @@ export const Inventory: React.FC = () => {
         </div>
       )}
 
-      {/* Edit Material Modal (Existing) */}
+      {/* Edit Material Modal */}
       {showEditModal && editingMaterial && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
            <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-w-xl shadow-2xl overflow-hidden mobile-sheet animate-in slide-in-from-bottom-8 duration-300">

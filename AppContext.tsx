@@ -169,6 +169,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const isPurchase = e.inventoryAction === 'Purchase' || (!e.inventoryAction && !!e.vendorId);
         newMaterials = newMaterials.map(m => {
           if (m.id === e.materialId) {
+            let targetUnitPrice = isPurchase ? (e.amount / e.materialQuantity!) : m.costPerUnit;
+            let batchId = isPurchase ? undefined : e.parentPurchaseId;
+
+            // If it's a usage and no specific parentPurchaseId was passed, find latest from same vendor
+            if (!isPurchase && !batchId && e.vendorId) {
+               const streamPurchases = (m.history || [])
+                  .filter(h => h.type === 'Purchase' && h.vendorId === e.vendorId)
+                  .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+               
+               if (streamPurchases.length > 0) {
+                 targetUnitPrice = streamPurchases[0].unitPrice || m.costPerUnit;
+                 batchId = streamPurchases[0].id.replace('sh-exp-', '');
+               }
+            }
+
             const historyItem: StockHistoryEntry = { 
               id: 'sh-exp-' + e.id, 
               date: e.date, 
@@ -176,11 +191,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               quantity: e.materialQuantity!, 
               projectId: e.projectId, 
               vendorId: e.vendorId, 
-              note: e.notes, // SYNC: Description mirrors Expense Notes
-              unitPrice: isPurchase ? (e.amount / e.materialQuantity!) : m.costPerUnit 
+              note: e.notes, 
+              unitPrice: targetUnitPrice,
+              parentPurchaseId: batchId
             };
+
+            // Link the expense to the batch for future price syncs
+            e.parentPurchaseId = batchId;
+            if (!isPurchase && targetUnitPrice > 0) {
+              e.amount = (e.materialQuantity || 0) * targetUnitPrice;
+            }
+
             return {
               ...m,
+              costPerUnit: isPurchase ? targetUnitPrice : m.costPerUnit,
               totalPurchased: isPurchase ? m.totalPurchased + e.materialQuantity! : m.totalPurchased,
               totalUsed: !isPurchase ? m.totalUsed + e.materialQuantity! : m.totalUsed,
               history: [...(m.history || []), historyItem]
@@ -207,6 +231,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
       
       let nextMaterials = [...prev.materials];
+      let updatedPurchaseUnitPrice = 0;
+      const isPurchase = e.inventoryAction === 'Purchase' || (!e.inventoryAction && !!e.vendorId);
+
+      // 1. Revert old stock effects
       if (oldExp && oldExp.materialId && oldExp.materialQuantity) {
         const wasPurchase = oldExp.inventoryAction === 'Purchase' || (!oldExp.inventoryAction && !!oldExp.vendorId);
         nextMaterials = nextMaterials.map(m => {
@@ -222,10 +250,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         });
       }
 
+      // 2. Apply new effects
       if (e.materialId && e.materialQuantity) {
-        const isPurchase = e.inventoryAction === 'Purchase' || (!e.inventoryAction && !!e.vendorId);
+        if (isPurchase) updatedPurchaseUnitPrice = e.amount / e.materialQuantity;
+        
         nextMaterials = nextMaterials.map(m => {
           if (m.id === e.materialId) {
+            let targetUnitPrice = isPurchase ? updatedPurchaseUnitPrice : (e.unitPrice || m.costPerUnit);
+            
             const newHistoryItem: StockHistoryEntry = {
               id: 'sh-exp-' + e.id,
               date: e.date,
@@ -233,11 +265,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               quantity: e.materialQuantity!,
               projectId: e.projectId,
               vendorId: e.vendorId,
-              note: e.notes, // SYNC: Description mirrors Expense Notes
-              unitPrice: isPurchase ? (e.amount / e.materialQuantity!) : m.costPerUnit
+              note: e.notes,
+              unitPrice: targetUnitPrice,
+              parentPurchaseId: isPurchase ? undefined : e.parentPurchaseId
             };
+            
             return {
               ...m,
+              costPerUnit: isPurchase ? targetUnitPrice : m.costPerUnit,
               totalPurchased: isPurchase ? m.totalPurchased + e.materialQuantity! : m.totalPurchased,
               totalUsed: !isPurchase ? m.totalUsed + e.materialQuantity! : m.totalUsed,
               history: [...(m.history || []), newHistoryItem]
@@ -246,10 +281,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           return m;
         });
       }
+
+      // 3. BATCH-SPECIFIC RECALCULATION:
+      // If a PURCHASE price changed, update ONLY those usages that are specifically linked to THIS purchase ID.
+      let nextExpenses = prev.expenses.map(x => x.id === e.id ? e : x);
+      if (isPurchase && updatedPurchaseUnitPrice > 0) {
+        
+        // Update Financial Ledger for linked usages
+        nextExpenses = nextExpenses.map(exp => {
+          if (exp.inventoryAction === 'Usage' && exp.parentPurchaseId === e.id) {
+            return { ...exp, amount: (exp.materialQuantity || 0) * updatedPurchaseUnitPrice };
+          }
+          return exp;
+        });
+        
+        // Update Inventory Ledger for linked usages
+        nextMaterials = nextMaterials.map(m => {
+          if (m.id === e.materialId) {
+            return {
+              ...m,
+              history: (m.history || []).map(h => {
+                if (h.type === 'Usage' && h.parentPurchaseId === e.id) {
+                  return { ...h, unitPrice: updatedPurchaseUnitPrice };
+                }
+                return h;
+              })
+            };
+          }
+          return m;
+        });
+      }
       
       return {
         ...prev,
-        expenses: prev.expenses.map(x => x.id === e.id ? e : x),
+        expenses: nextExpenses,
         vendors: nextVendors,
         materials: nextMaterials
       };

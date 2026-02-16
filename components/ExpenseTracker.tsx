@@ -61,64 +61,47 @@ export const ExpenseTracker: React.FC = () => {
 
   const isPurchase = useMemo(() => !!formData.vendorId, [formData.vendorId]);
 
-  // Refined helper: only purchased materials, split by vendor, prioritized by site
   const siteSpecificInventory = useMemo(() => {
     if (!formData.projectId) return [];
-
     const results: any[] = [];
 
     materials.forEach(m => {
-      const allHistory = m.history || [];
-      const purchaseEntries = allHistory.filter(h => h.type === 'Purchase');
+      const history = m.history || [];
+      const purchaseEntries = history.filter(h => h.type === 'Purchase');
       
-      // Standard restocking behavior shows all materials
       if (isPurchase) {
-        results.push({ id: m.id, name: m.name, unit: m.unit, vendorId: '', vendorName: '' });
+        // Just show basic material info for purchases
+        results.push({ id: m.id, name: m.name, unit: m.unit, display: m.name });
         return;
       }
 
-      // Consumption behavior: Rule: Hide if no purchase history
-      if (purchaseEntries.length === 0) return;
+      // Batch-wise lookup for consumption
+      purchaseEntries.forEach(purchase => {
+        const batchId = purchase.id.replace('sh-exp-', '');
+        const usagesAgainstThisBatch = history.filter(h => h.type === 'Usage' && h.parentPurchaseId === batchId);
+        const totalUsedFromBatch = usagesAgainstThisBatch.reduce((sum, u) => sum + u.quantity, 0);
+        const availableInBatch = purchase.quantity - totalUsedFromBatch;
 
-      const vendorIds = Array.from(new Set(purchaseEntries.map(h => h.vendorId).filter(Boolean)));
-      
-      vendorIds.forEach(vid => {
-        const vName = vendors.find(v => v.id === vid)?.name || 'Standard Supplier';
-        
-        // Net Calculation per Vendor/Site
-        const sitePurchases = allHistory.filter(h => h.type === 'Purchase' && h.vendorId === vid && h.projectId === formData.projectId);
-        const siteUsages = allHistory.filter(h => h.type === 'Usage' && h.vendorId === vid && h.projectId === formData.projectId);
-        
-        const sitePurchasedQty = sitePurchases.reduce((sum, h) => sum + h.quantity, 0);
-        const siteUsedQty = siteUsages.reduce((sum, h) => sum + h.quantity, 0);
-        const netSiteAvailable = sitePurchasedQty - siteUsedQty;
-
-        // Global pool check
-        const globalPurchased = allHistory.filter(h => h.type === 'Purchase' && h.vendorId === vid).reduce((sum, h) => sum + h.quantity, 0);
-        const globalUsed = allHistory.filter(h => h.type === 'Usage' && h.vendorId === vid).reduce((sum, h) => sum + h.quantity, 0);
-        const netGlobalAvailable = globalPurchased - globalUsed;
-
-        if (netGlobalAvailable <= 0) return;
-
-        results.push({
-          id: m.id,
-          name: m.name,
-          unit: m.unit,
-          vendorId: vid,
-          vendorName: vName,
-          sitePurchasedFromVendor: netSiteAvailable,
-          globalAvailable: netGlobalAvailable,
-          priority: netSiteAvailable > 0 ? 1 : 0
-        });
+        if (availableInBatch > 0) {
+          const vendor = vendors.find(v => v.id === purchase.vendorId);
+          const vName = vendor?.name || 'Standard Supplier';
+          const price = purchase.unitPrice || m.costPerUnit;
+          
+          results.push({
+            id: m.id,
+            name: m.name,
+            unit: m.unit,
+            batchId: batchId,
+            vendorId: purchase.vendorId,
+            isLocal: purchase.projectId === formData.projectId,
+            display: `${m.name} / ${vName} / ${formatCurrency(price)} / ${availableInBatch.toLocaleString()} ${m.unit}`
+          });
+        }
       });
     });
 
     if (isPurchase) return results.sort((a, b) => a.name.localeCompare(b.name));
-
-    return results.sort((a, b) => {
-      if (a.priority !== b.priority) return b.priority - a.priority;
-      return (b.sitePurchasedFromVendor || b.globalAvailable) - (a.sitePurchasedFromVendor || a.globalAvailable);
-    });
+    return results.sort((a, b) => (a.isLocal === b.isLocal ? 0 : a.isLocal ? -1 : 1));
   }, [materials, formData.projectId, isPurchase, vendors]);
 
   const calculatedCost = useMemo(() => {
@@ -126,27 +109,19 @@ export const ExpenseTracker: React.FC = () => {
     return (parseFloat(formData.materialQuantity) || 0) * selectedMaterial.costPerUnit;
   }, [selectedMaterial, formData.materialQuantity]);
 
-  const handleApplyCost = () => {
-    if (calculatedCost > 0) {
-      setFormData(prev => ({ ...prev, amount: calculatedCost.toFixed(2) }));
-    }
-  };
-
   const handleCreateOrUpdateExpense = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    // Logic for linking to parent batch if it's a consumption
+    let parentId = editingExpense?.parentPurchaseId;
     if (formData.category === 'Material' && formData.materialId && formData.materialQuantity && !isPurchase) {
-      const mat = materials.find(m => m.id === formData.materialId);
-      const qty = parseFloat(formData.materialQuantity) || 0;
-      
-      // Calculate specific stream balance
-      const selection = (siteSpecificInventory as any[]).find(s => s.id === formData.materialId && s.vendorId === (editingExpense?.vendorId || ''));
-      const available = selection ? (selection.sitePurchasedFromVendor > 0 ? selection.sitePurchasedFromVendor : selection.globalAvailable) : 0;
-
-      if (qty > available && !editingExpense) { // Only check for new entries; edits might fluctuate
-        alert(`Error: Insufficient stock from this supplier. (Available: ${available.toLocaleString()} ${mat?.unit || 'units'}). To restock, select a Billing Vendor.`);
-        return;
-      }
+       // Find the batch in inventory to get the ID and vendor link
+       const selection = (siteSpecificInventory as any[]).find(s => 
+         (s.id + '|' + s.batchId) === formData.materialId || s.id === formData.materialId
+       );
+       if (selection && selection.batchId) {
+         parentId = selection.batchId;
+       }
     }
 
     const expData: Expense = {
@@ -158,9 +133,10 @@ export const ExpenseTracker: React.FC = () => {
       paymentMethod: formData.paymentMethod,
       notes: formData.notes || 'General Expense',
       category: formData.category,
-      materialId: formData.materialId || undefined,
+      materialId: formData.materialId.split('|')[0] || undefined,
       materialQuantity: formData.materialId ? parseFloat(formData.materialQuantity) || undefined : undefined,
-      inventoryAction: editingExpense?.inventoryAction || (isPurchase ? 'Purchase' : 'Usage')
+      inventoryAction: editingExpense?.inventoryAction || (isPurchase ? 'Purchase' : 'Usage'),
+      parentPurchaseId: parentId
     };
 
     if (editingExpense) {
@@ -198,7 +174,7 @@ export const ExpenseTracker: React.FC = () => {
       notes: e.notes, 
       category: e.category, 
       paymentMethod: e.paymentMethod,
-      materialId: e.materialId || '',
+      materialId: e.parentPurchaseId ? `${e.materialId}|${e.parentPurchaseId}` : e.materialId || '',
       materialQuantity: e.materialQuantity?.toString() || ''
     });
     setShowModal(true);
@@ -214,26 +190,17 @@ export const ExpenseTracker: React.FC = () => {
     const totalPaidForExp = payments
       .filter(p => p.materialBatchId === 'sh-exp-' + exp.id)
       .reduce((sum, p) => sum + p.amount, 0);
-    
     const remaining = Math.max(0, exp.amount - totalPaidForExp);
-    
     setSelectedExpForPay(exp);
-    setPayFormData({
-      amount: remaining.toString(),
-      date: new Date().toISOString().split('T')[0],
-      method: 'Bank',
-      reference: ''
-    });
+    setPayFormData({ amount: remaining.toString(), date: new Date().toISOString().split('T')[0], method: 'Bank', reference: '' });
     setShowQuickPayModal(true);
   };
 
   const handleQuickPaySubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedExpForPay || !selectedExpForPay.vendorId) return;
-
     const amountNum = parseFloat(payFormData.amount) || 0;
     if (amountNum <= 0) return;
-
     const payment: Payment = {
       id: 'pay-exp-' + Date.now(),
       date: payFormData.date,
@@ -244,7 +211,6 @@ export const ExpenseTracker: React.FC = () => {
       reference: payFormData.reference,
       materialBatchId: 'sh-exp-' + selectedExpForPay.id
     };
-
     addPayment(payment);
     setShowQuickPayModal(false);
     setSelectedExpForPay(null);
@@ -284,11 +250,8 @@ export const ExpenseTracker: React.FC = () => {
                 const mat = exp.materialId ? materials.find(m => m.id === exp.materialId) : null;
                 const vendor = exp.vendorId ? vendors.find(v => v.id === exp.vendorId) : null;
                 const isMaterialPurchase = exp.category === 'Material' && exp.vendorId;
-                const totalPaidForExp = payments
-                  .filter(p => p.materialBatchId === 'sh-exp-' + exp.id)
-                  .reduce((sum, p) => sum + p.amount, 0);
+                const totalPaidForExp = payments.filter(p => p.materialBatchId === 'sh-exp-' + exp.id).reduce((sum, p) => sum + p.amount, 0);
                 const isFullyPaid = isMaterialPurchase && totalPaidForExp >= (exp.amount - 0.01);
-
                 return (
                   <tr key={exp.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/50 transition-colors group">
                     <td className="px-8 py-5 text-xs font-bold text-slate-500 dark:text-slate-400">{new Date(exp.date).toLocaleDateString()}</td>
@@ -331,13 +294,7 @@ export const ExpenseTracker: React.FC = () => {
                     <td className="px-8 py-5 text-right">
                       <div className="flex justify-end gap-1 items-center">
                         {isMaterialPurchase && !isFullyPaid && (
-                          <button 
-                            onClick={() => handleInitiatePay(exp)}
-                            className="bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 p-2.5 rounded-xl hover:bg-emerald-600 hover:text-white transition-all shadow-sm active:scale-90"
-                            title="Initiate Payment"
-                          >
-                            <DollarSign size={16} />
-                          </button>
+                          <button onClick={() => handleInitiatePay(exp)} className="bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 p-2.5 rounded-xl hover:bg-emerald-600 hover:text-white transition-all shadow-sm active:scale-90"><DollarSign size={16} /></button>
                         )}
                         <button onClick={() => openEdit(exp)} className="p-2 text-slate-400 hover:text-blue-600 transition-colors"><Pencil size={18} /></button>
                         <button onClick={() => handleDelete(exp.id)} className="p-2 text-slate-400 hover:text-red-600 transition-colors"><Trash2 size={18} /></button>
@@ -351,82 +308,13 @@ export const ExpenseTracker: React.FC = () => {
         </div>
       </div>
 
-      {/* Quick Payment Modal (Omitted for brevity, assumed same as previous) */}
-      {showQuickPayModal && selectedExpForPay && (
-        <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
-          <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-w-lg shadow-2xl overflow-hidden animate-in slide-in-from-bottom-8 duration-300">
-             <div className="p-8 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-emerald-50/30 dark:bg-emerald-900/10 shrink-0">
-                <div className="flex gap-4 items-center">
-                  <div className="p-4 bg-emerald-600 text-white rounded-2xl shadow-lg">
-                    <DollarSign size={24} />
-                  </div>
-                  <div>
-                    <h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tighter leading-none">Initiate Settlement</h2>
-                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Paying: {vendors.find(v => v.id === selectedExpForPay.vendorId)?.name}</p>
-                  </div>
-                </div>
-                <button onClick={() => setShowQuickPayModal(false)} className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white"><X size={32} /></button>
-             </div>
-             <form onSubmit={handleQuickPaySubmit} className="p-8 space-y-5 pb-safe overflow-y-auto no-scrollbar">
-                <div className="bg-slate-900 dark:bg-slate-950 p-6 rounded-[2rem] text-white flex justify-between items-center shadow-2xl">
-                   <div>
-                      <p className="text-[10px] font-black text-white/50 uppercase tracking-widest mb-1">Expense Bill Value</p>
-                      <p className="text-xl font-black">{formatCurrency(selectedExpForPay.amount)}</p>
-                   </div>
-                   <ArrowRightLeft className="text-white/20" size={24} />
-                   <div className="text-right">
-                      <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest mb-1">Settlement Qty</p>
-                      <p className="text-xl font-black text-emerald-500">{formatCurrency(parseFloat(payFormData.amount) || 0)}</p>
-                   </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                   <div className="space-y-1.5">
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Payment Amount (Rs.)</label>
-                      <input type="number" required step="0.01" className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-black dark:text-white outline-none focus:ring-4 focus:ring-emerald-500/10" value={payFormData.amount} onChange={e => setPayFormData(p => ({ ...p, amount: e.target.value }))} />
-                   </div>
-                   <div className="space-y-1.5">
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Value Date</label>
-                      <input type="date" required className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={payFormData.date} onChange={e => setPayFormData(p => ({ ...p, date: e.target.value }))} />
-                   </div>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Payment Mode</label>
-                  <div className="grid grid-cols-3 gap-2">
-                     {(['Bank', 'Cash', 'Online'] as PaymentMethod[]).map(m => (
-                       <button
-                         key={m} type="button"
-                         onClick={() => setPayFormData(p => ({ ...p, method: m }))}
-                         className={`py-3 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${payFormData.method === m ? 'bg-slate-900 border-slate-900 text-white shadow-lg' : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-500'}`}
-                       >{m}</button>
-                     ))}
-                  </div>
-                </div>
-
-                <div className="space-y-1.5">
-                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Reference / UTR Number</label>
-                   <div className="relative">
-                      <Landmark className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                      <input type="text" placeholder="Optional transaction code..." className="w-full pl-12 pr-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={payFormData.reference} onChange={e => setPayFormData(p => ({ ...p, reference: e.target.value }))} />
-                   </div>
-                </div>
-
-                <button type="submit" className="w-full bg-emerald-600 text-white py-5 rounded-[2rem] font-black shadow-2xl shadow-emerald-100 dark:shadow-none active:scale-95 transition-all text-sm uppercase tracking-widest flex items-center justify-center gap-3">
-                  <CheckCircle2 size={24} /> Confirm Settlement
-                </button>
-             </form>
-          </div>
-        </div>
-      )}
-
       {/* Expense Add/Edit Modal */}
       {showModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
           <div className="bg-white dark:bg-slate-800 rounded-[3rem] w-full max-w-xl shadow-2xl overflow-hidden animate-in slide-in-from-bottom-8 duration-300">
             <div className="p-8 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-50/50 dark:bg-slate-900 shrink-0">
               <div className="flex gap-4 items-center">
-                 <div className="p-4 bg-red-600 text-white rounded-2xl shadow-lg shadow-red-100 dark:shadow-none">
+                 <div className="p-4 bg-red-600 text-white rounded-2xl shadow-lg">
                     <Receipt size={24} />
                  </div>
                  <div>
@@ -441,7 +329,7 @@ export const ExpenseTracker: React.FC = () => {
                 <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-2xl border border-blue-100 dark:border-blue-900/30 flex items-start gap-3">
                    <Info size={18} className="text-blue-600 shrink-0 mt-0.5" />
                    <p className="text-[11px] font-bold text-blue-800 dark:text-blue-200 leading-relaxed uppercase tracking-tight">
-                     <strong>Ledger Sync Active:</strong> This entry is linked to Inventory. For data integrity, only the <strong>Quantity</strong> can be modified.
+                     <strong>Ledger Sync Active:</strong> Only <strong>Quantity</strong> can be modified for synced entries.
                    </p>
                 </div>
               )}
@@ -481,7 +369,7 @@ export const ExpenseTracker: React.FC = () => {
                       </div>
                    </div>
                    <div className="space-y-4">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1 block">Material Source</label>
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1 block">Material Source (Batch Wise)</label>
                       <select 
                         disabled={!!editingExpense?.materialId}
                         className="w-full px-5 py-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold text-xs dark:text-white outline-none disabled:opacity-50"
@@ -489,8 +377,12 @@ export const ExpenseTracker: React.FC = () => {
                         onChange={e => setFormData(p => ({ ...p, materialId: e.target.value }))}
                         required
                       >
-                         <option value="">Choose asset...</option>
-                         {materials.map(m => <option key={m.id} value={m.id}>{m.name} ({m.unit})</option>)}
+                         <option value="">Choose asset / batch...</option>
+                         {siteSpecificInventory.map((m: any, idx: number) => (
+                           <option key={idx} value={m.batchId ? `${m.id}|${m.batchId}` : m.id} className={m.isLocal ? 'text-emerald-600 font-bold' : ''}>
+                             {m.display}
+                           </option>
+                         ))}
                       </select>
                       {formData.materialId && (
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -507,7 +399,7 @@ export const ExpenseTracker: React.FC = () => {
                              />
                            </div>
                            <div className="flex flex-col justify-center bg-white/50 dark:bg-black/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-700">
-                              <p className="text-[9px] font-black text-slate-400 uppercase mb-1 px-1">Ledger Impact</p>
+                              <p className="text-[9px] font-black text-slate-400 uppercase mb-1 px-1">Current Sync Impact</p>
                               <p className="text-base font-black text-slate-900 dark:text-white truncate">
                                 {formatCurrency(calculatedCost)}
                               </p>
@@ -568,12 +460,7 @@ export const ExpenseTracker: React.FC = () => {
 
               <div className="flex gap-4 pt-4">
                 <button type="button" onClick={() => { setShowModal(false); setEditingExpense(null); }} className="flex-1 bg-slate-100 dark:bg-slate-700 py-4 rounded-[1.5rem] font-bold text-sm uppercase tracking-widest text-slate-500">Cancel</button>
-                <button 
-                  type="submit" 
-                  className={`flex-1 py-4 rounded-[1.5rem] font-black shadow-2xl transition-all active:scale-95 text-sm uppercase tracking-widest bg-red-600 text-white shadow-red-100 dark:shadow-none`}
-                >
-                  {editingExpense ? 'Finalize Changes' : (isPurchase ? 'Authorize Purchase' : 'Authorize Consumption')}
-                </button>
+                <button type="submit" className="flex-1 py-4 rounded-[1.5rem] font-black shadow-2xl transition-all active:scale-95 text-sm uppercase tracking-widest bg-red-600 text-white shadow-red-100 dark:shadow-none">Authorize Entry</button>
               </div>
             </form>
           </div>

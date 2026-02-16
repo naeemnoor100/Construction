@@ -46,6 +46,7 @@ export interface StockHistoryEntry {
   vendorId?: string;
   note?: string;
   unitPrice?: number;
+  parentPurchaseId?: string; // Links usage to a specific purchase batch
 }
 
 export interface Material {
@@ -67,12 +68,15 @@ export interface Expense {
   vendorId?: string;
   materialId?: string;
   materialQuantity?: number;
+  // unitPrice is used for tracking specific item costs in inventory-linked expenses
+  unitPrice?: number;
   amount: number;
   paymentMethod: PaymentMethod;
   notes: string;
   invoiceUrl?: string;
   category: string;
   inventoryAction?: 'Purchase' | 'Usage';
+  parentPurchaseId?: string; // Links a usage expense to the original purchase ID
 }
 
 export interface Invoice {
