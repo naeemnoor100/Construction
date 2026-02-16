@@ -39,7 +39,8 @@ import {
   Clock,
   Target,
   Info,
-  TrendingDown
+  TrendingDown,
+  Search
 } from 'lucide-react';
 import { useApp } from '../AppContext';
 import { ProjectStatus, Project, Expense, Income, PaymentMethod, Material, Payment, StockHistoryEntry, Invoice } from '../types';
@@ -66,8 +67,8 @@ export const ProjectList: React.FC = () => {
   const [showQuickIncome, setShowQuickIncome] = useState(false);
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
   const [showInventoryUsageModal, setShowInventoryUsageModal] = useState(false);
+  const [showTransferModal, setShowTransferModal] = useState(false);
 
-  // Quick Pay state
   const [showQuickPayModal, setShowQuickPayModal] = useState(false);
   const [selectedExpForPay, setSelectedExpForPay] = useState<Expense | null>(null);
   const [payFormData, setPayFormData] = useState({
@@ -92,7 +93,6 @@ export const ProjectList: React.FC = () => {
     amount: '', date: new Date().toISOString().split('T')[0], description: '', method: 'Bank' as PaymentMethod
   });
 
-  // Fixed syntax error here: setIncomeFormData was incorrectly repeated for invoiceFormData
   const [invoiceFormData, setInvoiceFormData] = useState({
     amount: '', date: new Date().toISOString().split('T')[0], dueDate: new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0], description: '', status: 'Sent' as Invoice['status']
   });
@@ -106,6 +106,20 @@ export const ProjectList: React.FC = () => {
     note: ''
   });
 
+  const [transferForm, setTransferForm] = useState({
+    materialId: '',
+    batchId: '',
+    destProjectId: '',
+    quantity: '',
+    date: new Date().toISOString().split('T')[0],
+    note: '',
+    unitPrice: 0
+  });
+
+  // Deep Search for Modals
+  const [usageMaterialSearch, setUsageMaterialSearch] = useState('');
+  const [transferProjectSearch, setTransferProjectSearch] = useState('');
+
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -115,6 +129,7 @@ export const ProjectList: React.FC = () => {
         setShowQuickIncome(false);
         setShowInvoiceModal(false);
         setShowInventoryUsageModal(false);
+        setShowTransferModal(false);
         setEditingExpense(null);
         setEditingIncome(null);
         setEditingInvoice(null);
@@ -170,17 +185,26 @@ export const ProjectList: React.FC = () => {
     setEditingProject(null);
   };
 
-  const filteredProjects = projects.filter(p => filter === 'All' || p.status === filter);
+  // Alphabetical Projects
+  const filteredProjects = useMemo(() => {
+    return projects
+      .filter(p => filter === 'All' || p.status === filter)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [projects, filter]);
+
+  // Alphabetical Statuses
+  const sortedStatuses = useMemo(() => [...siteStatuses].sort(), [siteStatuses]);
 
   const calculateProjectMetrics = (projectId: string, budget: number) => {
     const projectExpenses = expenses.filter(e => e.projectId === projectId);
     const projectIncomes = incomes.filter(i => i.projectId === projectId);
     const projectInvoices = invoices.filter(inv => inv.projectId === projectId);
-    const actualSiteExpenses = projectExpenses.filter(e => e.inventoryAction !== 'Purchase');
+    // Note: Actual site costs exclude 'Purchases' (because they are stock arrivals) and 'Transfers' (because they are stock movement)
+    const actualSiteExpenses = projectExpenses.filter(e => e.inventoryAction !== 'Purchase' && e.inventoryAction !== 'Transfer');
     const totalSpent = actualSiteExpenses.reduce((sum, e) => sum + e.amount, 0);
     const totalCollected = projectIncomes.reduce((sum, i) => sum + i.amount, 0);
     const totalInvoiced = projectInvoices.reduce((sum, inv) => sum + inv.amount, 0);
-    const progress = Math.min(100, Math.round((totalSpent / budget) * 100)) || 0;
+    const progress = Math.min(100, Math.round((totalSpent / (budget || 1)) * 100)) || 0;
     const categories: Record<string, number> = {};
     actualSiteExpenses.forEach(e => { categories[e.category] = (categories[e.category] || 0) + e.amount; });
     return { totalSpent, totalCollected, totalInvoiced, receivable: totalInvoiced - totalCollected, progress, categoryBreakdown: categories, allExpenses: projectExpenses };
@@ -188,10 +212,26 @@ export const ProjectList: React.FC = () => {
 
   const projectArrivals = useMemo(() => {
     if (!viewingProject) return [];
-    const arrivals: { material: Material, entry: StockHistoryEntry }[] = [];
+    const arrivals: { material: Material, entry: StockHistoryEntry, arrived: number, consumed: number, transferred: number, remaining: number }[] = [];
     materials.forEach(m => {
       m.history?.forEach(h => {
-        if (h.type === 'Purchase' && h.projectId === viewingProject.id) { arrivals.push({ material: m, entry: h }); }
+        // Track site-specific stock: only inward (Purchase or Transfer IN)
+        if ((h.type === 'Purchase' || h.type === 'Transfer') && h.projectId === viewingProject.id && h.quantity > 0) { 
+          const batchId = h.id.replace('sh-exp-', '');
+          // Subtract usages AND transfers out specifically linked to this entry or site
+          const historyForMaterial = m.history || [];
+          const deductions = historyForMaterial.filter(d => 
+            d.parentPurchaseId === batchId && d.projectId === viewingProject.id && d.quantity < 0
+          );
+          
+          const qtyUsed = Math.abs(deductions.filter(d => d.type === 'Usage').reduce((sum, d) => sum + d.quantity, 0));
+          const qtyMoved = Math.abs(deductions.filter(d => d.type === 'Transfer').reduce((sum, d) => sum + d.quantity, 0));
+          
+          const arrived = h.quantity;
+          const remaining = arrived - (qtyUsed + qtyMoved);
+          
+          arrivals.push({ material: m, entry: h, arrived, consumed: qtyUsed, transferred: qtyMoved, remaining }); 
+        }
       });
     });
     return arrivals.sort((a, b) => new Date(b.entry.date).getTime() - new Date(a.entry.date).getTime());
@@ -203,56 +243,59 @@ export const ProjectList: React.FC = () => {
     
     materials.forEach(mat => {
       const history = mat.history || [];
-      const purchaseEntries = history.filter(h => h.type === 'Purchase');
+      // Any positive entry for this site or others
+      const inwardEntries = history.filter(h => (h.type === 'Purchase' || h.type === 'Transfer') && h.quantity > 0);
       
-      purchaseEntries.forEach(purchase => {
-        const batchId = purchase.id.replace('sh-exp-', '');
-        
-        // Calculate remaining in this specific batch
-        const usagesAgainstThisBatch = history.filter(h => 
-          h.type === 'Usage' && h.parentPurchaseId === batchId
+      inwardEntries.forEach(inward => {
+        const batchId = inward.id.replace('sh-exp-', '');
+        const deductionsAgainstThisBatch = history.filter(h => 
+          h.parentPurchaseId === batchId && h.quantity < 0
         );
-        const totalUsedFromBatch = usagesAgainstThisBatch.reduce((sum, u) => sum + u.quantity, 0);
-        const availableInBatch = purchase.quantity - totalUsedFromBatch;
+        const totalDeductedFromBatch = Math.abs(deductionsAgainstThisBatch.reduce((sum, d) => sum + d.quantity, 0));
+        const availableInBatch = inward.quantity - totalDeductedFromBatch;
 
         if (availableInBatch > 0) {
-          const vendor = vendors.find(v => v.id === purchase.vendorId);
+          const vendor = vendors.find(v => v.id === inward.vendorId);
           batches.push({
             id: mat.id,
             name: mat.name,
             unit: mat.unit,
             batchId: batchId,
-            vendorName: vendor?.name || 'Standard Supplier',
-            vendorId: purchase.vendorId,
-            unitPrice: purchase.unitPrice || mat.costPerUnit,
+            vendorName: vendor?.name || (inward.type === 'Transfer' ? 'Inbound Stock' : 'Standard Supplier'),
+            vendorId: inward.vendorId,
+            unitPrice: inward.unitPrice || mat.costPerUnit,
             available: availableInBatch,
-            isLocal: purchase.projectId === viewingProject.id
+            isLocal: inward.projectId === viewingProject.id
           });
         }
       });
     });
 
-    return batches.sort((a, b) => (a.isLocal === b.isLocal ? 0 : a.isLocal ? -1 : 1));
-  }, [materials, viewingProject, vendors]);
+    return batches
+      .filter(b => {
+        const term = usageMaterialSearch.toLowerCase();
+        return b.name.toLowerCase().includes(term) || b.vendorName.toLowerCase().includes(term);
+      })
+      .sort((a, b) => {
+        if (a.isLocal !== b.isLocal) return a.isLocal ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
+  }, [materials, viewingProject, vendors, usageMaterialSearch]);
 
-  // Real-time calculation for display
-  const selectedBatchForTotal = useMemo(() => {
-    return siteRelevantMaterials.find(b => 
+  const currentTotalValue = useMemo(() => {
+    const selectedBatch = siteRelevantMaterials.find(b => 
       b.id === inventoryUsageForm.materialId && b.batchId === inventoryUsageForm.batchId
     );
-  }, [siteRelevantMaterials, inventoryUsageForm.materialId, inventoryUsageForm.batchId]);
+    return (selectedBatch?.unitPrice || 0) * (parseFloat(inventoryUsageForm.quantity) || 0);
+  }, [siteRelevantMaterials, inventoryUsageForm.materialId, inventoryUsageForm.batchId, inventoryUsageForm.quantity]);
 
-  const currentTotalValue = (selectedBatchForTotal?.unitPrice || 0) * (parseFloat(inventoryUsageForm.quantity) || 0);
-
-  const handleQuickExpenseSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!viewingProject) return;
-    const data: Expense = { id: editingExpense ? editingExpense.id : 'e' + Date.now(), date: expenseFormData.date, projectId: viewingProject.id, vendorId: expenseFormData.vendorId || undefined, amount: parseFloat(expenseFormData.amount) || 0, paymentMethod: expenseFormData.paymentMethod, category: expenseFormData.category, notes: expenseFormData.notes || `Project ${expenseFormData.category} cost`, materialId: expenseFormData.materialId || undefined, materialQuantity: expenseFormData.materialId ? parseFloat(expenseFormData.materialQuantity) || undefined : undefined, inventoryAction: editingExpense?.inventoryAction || (expenseFormData.vendorId ? 'Purchase' : 'Usage'), parentPurchaseId: editingExpense?.parentPurchaseId };
-    if (editingExpense) await updateExpense(data); else await addExpense(data);
-    setShowQuickExpense(false);
-    setEditingExpense(null);
-    resetQuickExpenseForm();
-  };
+  const sortedTransferDestinations = useMemo(() => {
+    if (!viewingProject) return [];
+    return projects
+      .filter(p => p.id !== viewingProject.id)
+      .filter(p => p.name.toLowerCase().includes(transferProjectSearch.toLowerCase()))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [projects, viewingProject, transferProjectSearch]);
 
   const handleInventoryUsageSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -262,16 +305,92 @@ export const ProjectList: React.FC = () => {
     const qty = parseFloat(inventoryUsageForm.quantity) || 0;
     if (selectedBatch.available < qty) { alert(`Error: Insufficient stock in this batch. (Available: ${selectedBatch.available} ${selectedBatch.unit})`); return; }
     const totalCost = qty * selectedBatch.unitPrice;
-    await addExpense({ id: 'e-inv-' + Date.now(), date: inventoryUsageForm.date, projectId: viewingProject.id, amount: totalCost, paymentMethod: 'Bank', category: 'Material', materialId: selectedBatch.id, vendorId: selectedBatch.vendorId, inventoryAction: 'Usage', materialQuantity: qty, parentPurchaseId: selectedBatch.batchId, notes: inventoryUsageForm.note || `Consumption: ${qty} ${selectedBatch.unit} of ${selectedBatch.name}` });
+    
+    // Usage is always recorded with negative quantity for history deduction
+    await addExpense({ 
+      id: 'e-inv-' + Date.now(), 
+      date: inventoryUsageForm.date, 
+      projectId: viewingProject.id, 
+      amount: totalCost, 
+      paymentMethod: 'Bank', 
+      category: 'Material', 
+      materialId: selectedBatch.id, 
+      vendorId: selectedBatch.vendorId, 
+      inventoryAction: 'Usage', 
+      materialQuantity: -qty, 
+      parentPurchaseId: selectedBatch.batchId, 
+      notes: inventoryUsageForm.note || `Consumption: ${qty} ${selectedBatch.unit} of ${selectedBatch.name}` 
+    });
+    
     setShowInventoryUsageModal(false);
     setInventoryUsageForm({ materialId: '', batchId: '', vendorId: '', quantity: '', date: new Date().toISOString().split('T')[0], note: '' });
+  };
+
+  const handleTransferSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!viewingProject || !transferForm.destProjectId || !transferForm.materialId) return;
+    const qty = parseFloat(transferForm.quantity) || 0;
+    if (qty <= 0) return;
+
+    const destProject = projects.find(p => p.id === transferForm.destProjectId);
+    const unitPrice = transferForm.unitPrice;
+
+    // Leg 1: Record TRANSFER OUT from source site (treated as type 'Transfer' with negative qty)
+    await addExpense({
+      id: 'e-trans-out-' + Date.now(),
+      date: transferForm.date,
+      projectId: viewingProject.id,
+      amount: 0, // Transfer movement has 0 financial impact at source until consumed
+      paymentMethod: 'Bank',
+      category: 'Material',
+      materialId: transferForm.materialId,
+      materialQuantity: -qty,
+      inventoryAction: 'Transfer',
+      parentPurchaseId: transferForm.batchId,
+      notes: transferForm.note || `Transfer OUT to Site: ${destProject?.name}`
+    });
+
+    // Leg 2: Record TRANSFER IN at destination site (inventoryAction: 'Transfer' with positive qty)
+    await addExpense({
+      id: 'e-trans-in-' + Date.now(),
+      date: transferForm.date,
+      projectId: transferForm.destProjectId,
+      amount: 0, // Transfer movement has 0 financial impact at destination until consumed
+      paymentMethod: 'Bank',
+      category: 'Material',
+      materialId: transferForm.materialId,
+      materialQuantity: qty,
+      inventoryAction: 'Transfer',
+      notes: `Transfer IN from Site: ${viewingProject.name}`,
+      unitPrice: unitPrice // Carry over the original cost
+    });
+
+    setShowTransferModal(false);
+    setTransferProjectSearch('');
+  };
+
+  const handleQuickIncomeSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!viewingProject) return;
+    const incData: Income = {
+      id: editingIncome ? editingIncome.id : 'inc-' + Date.now(),
+      projectId: viewingProject.id,
+      amount: parseFloat(incomeFormData.amount) || 0,
+      description: incomeFormData.description,
+      date: incomeFormData.date,
+      method: incomeFormData.method
+    };
+    if (editingIncome) await updateIncome(incData); else await addIncome(incData);
+    setShowQuickIncome(false);
+    setEditingIncome(null);
+    setIncomeFormData({ amount: '', date: new Date().toISOString().split('T')[0], description: '', method: 'Bank' });
   };
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight uppercase">Project Management</h2>
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight uppercase">Site Portfolio (A-Z)</h2>
           <p className="text-slate-500 dark:text-slate-400 text-sm font-medium">Monitor site activity and manage specific project financials.</p>
         </div>
         <button 
@@ -284,7 +403,7 @@ export const ProjectList: React.FC = () => {
 
       <div className="flex bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-1 overflow-x-auto no-scrollbar w-fit max-w-full">
         <button onClick={() => setFilter('All')} className={`px-5 py-2 text-[10px] font-bold uppercase tracking-widest rounded-xl transition-all whitespace-nowrap ${filter === 'All' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}>All</button>
-        {siteStatuses.map(tab => (
+        {sortedStatuses.map(tab => (
           <button key={tab} onClick={() => setFilter(tab)} className={`px-5 py-2 text-[10px] font-bold uppercase tracking-widest rounded-xl transition-all whitespace-nowrap ${filter === tab ? 'bg-blue-600 text-white shadow-md' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}>{tab}</button>
         ))}
       </div>
@@ -321,7 +440,6 @@ export const ProjectList: React.FC = () => {
         })}
       </div>
 
-      {/* Project Add/Edit Modal */}
       {showModal && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
           <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-w-2xl shadow-2xl overflow-hidden animate-in slide-in-from-bottom-8 duration-300">
@@ -368,7 +486,7 @@ export const ProjectList: React.FC = () => {
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Site Status</label>
                     <select className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none appearance-none" value={formData.status} onChange={e => setFormData(p => ({ ...p, status: e.target.value }))}>
-                      {siteStatuses.map(s => <option key={s} value={s}>{s}</option>)}
+                      {sortedStatuses.map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
                   </div>
                 </div>
@@ -388,8 +506,7 @@ export const ProjectList: React.FC = () => {
       {/* Insights Modal */}
       {viewingProject && (() => {
         const metrics = calculateProjectMetrics(viewingProject.id, viewingProject.budget);
-        const projectIncomes = incomes.filter(i => i.projectId === viewingProject.id);
-        const projectInvoices = invoices.filter(inv => inv.projectId === viewingProject.id);
+        const projectIncomes = incomes.filter(i => i.projectId === viewingProject.id).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
         return (
           <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
             <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-w-6xl h-[92vh] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-300">
@@ -412,11 +529,15 @@ export const ProjectList: React.FC = () => {
                     <div className="flex w-full sm:w-auto overflow-x-auto no-scrollbar">
                       <button onClick={() => setActiveDetailTab('budget')} className={`px-6 py-5 text-[10px] font-black uppercase tracking-widest transition-all ${activeDetailTab === 'budget' ? 'bg-white dark:bg-slate-800 text-slate-900 border-b-4 border-slate-900' : 'text-slate-400'}`}>Master Budget</button>
                       <button onClick={() => setActiveDetailTab('expenses')} className={`px-6 py-5 text-[10px] font-black uppercase tracking-widest transition-all ${activeDetailTab === 'expenses' ? 'bg-white dark:bg-slate-800 text-blue-600 border-b-4 border-blue-600' : 'text-slate-400'}`}>Site Costs</button>
+                      <button onClick={() => setActiveDetailTab('income')} className={`px-6 py-5 text-[10px] font-black uppercase tracking-widest transition-all ${activeDetailTab === 'income' ? 'bg-white dark:bg-slate-800 text-emerald-600 border-b-4 border-emerald-600' : 'text-slate-400'}`}>Project Income</button>
                       <button onClick={() => setActiveDetailTab('arrivals')} className={`px-6 py-5 text-[10px] font-black uppercase tracking-widest transition-all ${activeDetailTab === 'arrivals' ? 'bg-white dark:bg-slate-800 text-amber-600 border-b-4 border-amber-600' : 'text-slate-400'}`}>Material Arrivals</button>
                     </div>
                     <div className="p-4 sm:p-0 flex gap-2 w-full sm:w-auto">
                       {activeDetailTab === 'expenses' && (
                         <button onClick={() => setShowInventoryUsageModal(true)} className="flex-1 sm:flex-none bg-blue-600 text-white px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all"><Package size={16} /> Record Use</button>
+                      )}
+                      {activeDetailTab === 'income' && (
+                        <button onClick={() => { setEditingIncome(null); setIncomeFormData({ amount: '', date: new Date().toISOString().split('T')[0], description: '', method: 'Bank' }); setShowQuickIncome(true); }} className="flex-1 sm:flex-none bg-emerald-600 text-white px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all"><Plus size={16} /> Record Income</button>
                       )}
                     </div>
                   </div>
@@ -435,7 +556,7 @@ export const ProjectList: React.FC = () => {
                              <div className="space-y-6">
                                 <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest flex items-center gap-2"><PieChart size={18} className="text-emerald-600" /> Realized Costs by Category</h3>
                                 <div className="space-y-3">
-                                   {Object.entries(metrics.categoryBreakdown).map(([cat, amt]) => (
+                                   {Object.entries(metrics.categoryBreakdown).sort((a,b) => a[0].localeCompare(b[0])).map(([cat, amt]) => (
                                      <div key={cat} className="flex items-center justify-between p-4 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-2xl shadow-sm group hover:border-blue-400 transition-all">
                                         <div className="flex items-center gap-3"><div className="p-2 bg-slate-50 dark:bg-slate-900 rounded-lg text-slate-400 group-hover:text-blue-500 transition-colors"><Tag size={14} /></div><span className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-tight">{cat}</span></div>
                                         <div className="text-right"><p className="text-xs font-black text-slate-900 dark:text-white">{formatCurrency(amt)}</p><p className="text-[9px] text-slate-400 font-bold uppercase tracking-tighter">{Math.round((amt / (metrics.totalSpent || 1)) * 100)}% of realization</p></div>
@@ -447,13 +568,19 @@ export const ProjectList: React.FC = () => {
                        </div>
                      )}
                      {activeDetailTab !== 'budget' && (
-                        <table className="w-full text-left min-w-[700px]">
+                        <table className="w-full text-left min-w-[800px]">
                           <thead className="bg-slate-50/50 dark:bg-slate-900/50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 dark:border-slate-700">
-                            <tr><th className="px-8 py-5">Value Date</th><th className="px-8 py-5">Ledger Entry Details</th><th className="px-8 py-5 text-center">Quantity</th><th className="px-8 py-5 text-right">Amount</th><th className="px-8 py-5 text-right">Control</th></tr>
+                            {activeDetailTab === 'expenses' ? (
+                              <tr><th className="px-8 py-5">Value Date</th><th className="px-8 py-5">Ledger Entry Details</th><th className="px-8 py-5 text-center">Quantity</th><th className="px-8 py-5 text-right">Amount / Actions</th><th className="px-8 py-5 text-right">Control</th></tr>
+                            ) : activeDetailTab === 'income' ? (
+                              <tr><th className="px-8 py-5">Value Date</th><th className="px-8 py-5">Description</th><th className="px-8 py-5">Method</th><th className="px-8 py-5 text-right">Amount</th><th className="px-8 py-5 text-right">Control</th></tr>
+                            ) : (
+                              <tr><th className="px-8 py-5">Arrival Date</th><th className="px-8 py-5">Material Asset</th><th className="px-8 py-5 text-center">Inward (Quantity)</th><th className="px-8 py-5 text-center">Activity Summary</th><th className="px-8 py-5 text-center">Remaining</th><th className="px-8 py-5 text-right">Actions</th></tr>
+                            )}
                           </thead>
                           <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
                              {activeDetailTab === 'expenses' ? (
-                               metrics.allExpenses.filter(e => e.inventoryAction !== 'Purchase').slice().reverse().map(e => {
+                               metrics.allExpenses.filter(e => e.inventoryAction !== 'Purchase' && e.inventoryAction !== 'Transfer').slice().reverse().map(e => {
                                  const isConsumption = e.inventoryAction === 'Usage';
                                  const mat = e.materialId ? materials.find(m => m.id === e.materialId) : null;
                                  return (
@@ -462,20 +589,85 @@ export const ProjectList: React.FC = () => {
                                      <td className="px-8 py-5">
                                        <div className="flex flex-col"><div className="flex items-center gap-2">{isConsumption ? <TrendingDown size={14} className="text-blue-500" /> : <Receipt size={14} className="text-slate-400" />}{mat ? (<p className="text-sm font-black text-slate-900 dark:text-slate-100 uppercase tracking-tighter truncate max-w-[300px]">{mat.name} <span className="text-[10px] font-bold text-slate-400">({mat.unit})</span></p>) : (<p className="text-sm font-black text-slate-800 dark:text-slate-200 uppercase tracking-tighter truncate max-w-[300px]">{e.category}</p>)}</div><p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase mt-0.5 tracking-tight">Supplier: {e.vendorId ? (vendors.find(v => v.id === e.vendorId)?.name || 'Standard Supplier') : 'Self / Direct'}</p></div>
                                      </td>
-                                     <td className="px-8 py-5 text-center">{e.materialQuantity ? (<span className="text-xs font-black text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-lg">{e.materialQuantity.toLocaleString()} {mat?.unit || ''}</span>) : <span className="text-slate-300">--</span>}</td>
+                                     <td className="px-8 py-5 text-center">{e.materialQuantity ? (<span className="text-xs font-black text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-lg">{Math.abs(e.materialQuantity).toLocaleString()} {mat?.unit || ''}</span>) : <span className="text-slate-300">--</span>}</td>
                                      <td className="px-8 py-5 text-sm font-black text-red-600 text-right">{formatCurrency(e.amount)}</td>
                                      <td className="px-8 py-5 text-right"><div className="flex justify-end gap-1"><button onClick={() => deleteExpense(e.id)} className="p-2 text-slate-400 hover:text-red-600 transition-colors"><Trash2 size={18} /></button></div></td>
                                    </tr>
                                  );
                                })
+                             ) : activeDetailTab === 'income' ? (
+                               projectIncomes.map(inc => (
+                                 <tr key={inc.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/50 transition-colors group/row">
+                                    <td className="px-8 py-5 text-xs font-bold text-slate-500 dark:text-slate-400">{new Date(inc.date).toLocaleDateString()}</td>
+                                    <td className="px-8 py-5 text-sm font-black text-slate-800 dark:text-slate-200 uppercase truncate max-w-[250px]">{inc.description}</td>
+                                    <td className="px-8 py-5"><span className="px-2.5 py-1 text-[9px] font-bold uppercase rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-500">{inc.method}</span></td>
+                                    <td className="px-8 py-5 text-sm font-black text-emerald-600 text-right">{formatCurrency(inc.amount)}</td>
+                                    <td className="px-8 py-5 text-right">
+                                       <div className="flex justify-end gap-1">
+                                          <button onClick={() => { setEditingIncome(inc); setIncomeFormData({ amount: inc.amount.toString(), date: inc.date, description: inc.description, method: inc.method }); setShowQuickIncome(true); }} className="p-2 text-slate-400 hover:text-blue-600 transition-colors"><Pencil size={18} /></button>
+                                          <button onClick={() => deleteIncome(inc.id)} className="p-2 text-slate-400 hover:text-red-600 transition-colors"><Trash2 size={18} /></button>
+                                       </div>
+                                    </td>
+                                 </tr>
+                               ))
                              ) : (
                                projectArrivals.map((arrival, idx) => (
                                  <tr key={`${arrival.material.id}-${idx}`} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/50 transition-colors group/row">
                                    <td className="px-8 py-5 text-xs font-bold text-slate-500 dark:text-slate-400">{new Date(arrival.entry.date).toLocaleDateString()}</td>
-                                   <td className="px-8 py-5"><p className="text-sm font-black text-slate-800 dark:text-slate-200 uppercase tracking-tighter">{arrival.material.name} <span className="text-[10px] font-bold text-slate-400">({arrival.material.unit})</span></p><span className="text-[9px] font-bold text-slate-400 uppercase">Vendor: {vendors.find(v => v.id === arrival.entry.vendorId)?.name || 'Direct'}</span></td>
-                                   <td className="px-8 py-5 text-center"><span className="text-xs font-black text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-lg">{arrival.entry.quantity.toLocaleString()} {arrival.material.unit}s</span></td>
-                                   <td className="px-8 py-5 text-sm font-black text-slate-900 dark:text-white text-right">--</td>
-                                   <td className="px-8 py-5 text-right"><button onClick={() => { const batchId = arrival.entry.id.replace('sh-exp-', ''); setInventoryUsageForm({ materialId: arrival.material.id, batchId: batchId, vendorId: arrival.entry.vendorId || '', quantity: arrival.entry.quantity.toString(), date: new Date().toISOString().split('T')[0], note: `Consumption of batch received on ${new Date(arrival.entry.date).toLocaleDateString()}` }); setShowInventoryUsageModal(true); }} className="px-4 py-2 text-[10px] font-black uppercase bg-blue-600 text-white rounded-xl shadow-sm hover:bg-blue-700 active:scale-95 transition-all">Record Consumption</button></td>
+                                   <td className="px-8 py-5">
+                                      <p className="text-sm font-black text-slate-800 dark:text-slate-200 uppercase tracking-tighter">{arrival.material.name} <span className="text-[10px] font-bold text-slate-400">({arrival.material.unit})</span></p>
+                                      <span className="text-[9px] font-bold text-slate-400 uppercase">
+                                        {arrival.entry.type === 'Transfer' ? 'Inbound Transfer' : `Vendor: ${vendors.find(v => v.id === arrival.entry.vendorId)?.name || 'Direct'}`}
+                                      </span>
+                                   </td>
+                                   <td className="px-8 py-5 text-center">
+                                      <span className="text-xs font-black text-slate-900 dark:text-white bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-lg border border-slate-200 dark:border-slate-700">{arrival.arrived.toLocaleString()}</span>
+                                   </td>
+                                   <td className="px-8 py-5 text-center">
+                                      <div className="flex flex-col gap-1.5 items-center">
+                                        {arrival.consumed > 0 && (
+                                          <div className="flex flex-col items-center">
+                                            <span className="text-xs font-black text-amber-600 bg-amber-50 dark:bg-amber-900/10 px-3 py-0.5 rounded-lg border border-amber-100 dark:border-amber-900/20">{arrival.consumed.toLocaleString()}</span>
+                                            <span className="text-[8px] font-black uppercase text-amber-500">کنزیوم</span>
+                                          </div>
+                                        )}
+                                        {arrival.transferred > 0 && (
+                                          <div className="flex flex-col items-center">
+                                            <span className="text-xs font-black text-indigo-600 bg-indigo-50 dark:bg-indigo-900/10 px-3 py-0.5 rounded-lg border border-indigo-100 dark:border-indigo-900/20">{arrival.transferred.toLocaleString()}</span>
+                                            <span className="text-[8px] font-black uppercase text-indigo-500">ٹرانسفر</span>
+                                          </div>
+                                        )}
+                                        {arrival.consumed === 0 && arrival.transferred === 0 && (
+                                          <span className="text-[10px] text-slate-300 font-bold uppercase italic">No Activity</span>
+                                        )}
+                                      </div>
+                                   </td>
+                                   <td className="px-8 py-5 text-center">
+                                      <div className="flex flex-col items-center">
+                                        <span className={`text-xs font-black px-3 py-1 rounded-lg border ${arrival.remaining > 0 ? 'text-emerald-600 bg-emerald-50 border-emerald-100 dark:bg-emerald-900/10 dark:border-emerald-900/20' : 'text-slate-400 bg-slate-50 border-slate-100 dark:bg-slate-900/20 dark:border-slate-700'}`}>
+                                          {arrival.remaining.toLocaleString()}
+                                        </span>
+                                        <span className="text-[8px] font-black uppercase text-slate-400 mt-0.5">باقی</span>
+                                      </div>
+                                   </td>
+                                   <td className="px-8 py-5 text-right">
+                                      <div className="flex justify-end gap-2">
+                                        <button 
+                                          disabled={arrival.remaining <= 0}
+                                          onClick={() => { const batchId = arrival.entry.id.replace('sh-exp-', ''); setInventoryUsageForm({ materialId: arrival.material.id, batchId: batchId, vendorId: arrival.entry.vendorId || '', quantity: arrival.remaining.toString(), date: new Date().toISOString().split('T')[0], note: `Consumption of batch received on ${new Date(arrival.entry.date).toLocaleDateString()}` }); setShowInventoryUsageModal(true); }} 
+                                          className={`px-4 py-2 text-[10px] font-black uppercase rounded-xl shadow-sm transition-all ${arrival.remaining > 0 ? 'bg-blue-600 text-white hover:bg-blue-700 active:scale-95' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}
+                                        >
+                                          Consume
+                                        </button>
+                                        <button 
+                                          disabled={arrival.remaining <= 0}
+                                          onClick={() => { setTransferForm({ materialId: arrival.material.id, batchId: arrival.entry.id.replace('sh-exp-', ''), destProjectId: '', quantity: arrival.remaining.toString(), date: new Date().toISOString().split('T')[0], note: '', unitPrice: arrival.entry.unitPrice || arrival.material.costPerUnit }); setTransferProjectSearch(''); setShowTransferModal(true); }} 
+                                          className={`px-4 py-2 text-[10px] font-black uppercase rounded-xl shadow-sm flex items-center gap-2 transition-all ${arrival.remaining > 0 ? 'bg-slate-900 text-white hover:bg-slate-800 active:scale-95' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}
+                                        >
+                                          <ArrowRightLeft size={12} /> Send
+                                        </button>
+                                      </div>
+                                   </td>
                                  </tr>
                                ))
                              )}
@@ -491,22 +683,121 @@ export const ProjectList: React.FC = () => {
         );
       })()}
 
-      {/* Record Consumption Modal */}
+      {/* Record Quick Income Modal for Project Insights */}
+      {showQuickIncome && viewingProject && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
+           <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-w-lg shadow-2xl overflow-hidden animate-in slide-in-from-bottom-8 duration-300">
+              <div className="p-8 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-emerald-50/30 dark:bg-emerald-900/20">
+                 <div className="flex gap-4 items-center">
+                    <div className="p-3 bg-emerald-600 text-white rounded-2xl shadow-lg"><DollarSign size={24} /></div>
+                    <div>
+                       <h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">{editingIncome ? 'Edit Receipt' : 'Record Collection'}</h2>
+                       <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Project: {viewingProject.name}</p>
+                    </div>
+                 </div>
+                 <button onClick={() => { setShowQuickIncome(false); setEditingIncome(null); }} className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"><X size={28} /></button>
+              </div>
+              <form onSubmit={handleQuickIncomeSubmit} className="p-8 space-y-5">
+                 <div className="space-y-1.5"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Milestone Description</label><textarea required rows={2} className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 rounded-2xl font-bold dark:text-white outline-none" placeholder="e.g. 1st Floor Slab casting complete..." value={incomeFormData.description} onChange={e => setIncomeFormData(p => ({ ...p, description: e.target.value }))} /></div>
+                 <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1.5"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Amount (Rs.)</label><input type="number" required step="0.01" className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 rounded-2xl font-black text-lg dark:text-white" value={incomeFormData.amount} onChange={e => setIncomeFormData(p => ({ ...p, amount: e.target.value }))} /></div>
+                    <div className="space-y-1.5"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Value Date</label><input type="date" required className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 rounded-2xl font-bold dark:text-white" value={incomeFormData.date} onChange={e => setIncomeFormData(p => ({ ...p, date: e.target.value }))} /></div>
+                 </div>
+                 <div className="space-y-1.5">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Settlement Channel</label>
+                    <div className="grid grid-cols-3 gap-2">
+                       {(['Bank', 'Cash', 'Online'] as PaymentMethod[]).map(m => (
+                         <button key={m} type="button" onClick={() => setIncomeFormData(p => ({ ...p, method: m }))} className={`py-3 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${incomeFormData.method === m ? 'bg-emerald-600 border-emerald-600 text-white shadow-lg' : 'bg-white dark:bg-slate-900 border-slate-200 text-slate-500'}`}>{m}</button>
+                       ))}
+                    </div>
+                 </div>
+                 <button type="submit" className="w-full bg-emerald-600 text-white py-4 rounded-3xl font-black uppercase tracking-widest shadow-xl shadow-emerald-100 dark:shadow-none active:scale-95 transition-all text-sm mt-4">Confirm Collection</button>
+              </form>
+           </div>
+        </div>
+      )}
+
+      {/* Transfer Material Modal */}
+      {showTransferModal && viewingProject && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
+           <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-w-lg shadow-2xl overflow-hidden animate-in slide-in-from-bottom-8 duration-300">
+              <div className="p-8 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-900 text-white">
+                 <div className="flex gap-4 items-center">
+                    <div className="p-3 bg-white/10 rounded-2xl"><ArrowRightLeft size={24} /></div>
+                    <div>
+                       <h2 className="text-xl font-black uppercase tracking-tighter leading-none">Inter-Site Transfer</h2>
+                       <p className="text-[10px] font-bold opacity-60 uppercase mt-1">Source: {viewingProject.name}</p>
+                    </div>
+                 </div>
+                 <button onClick={() => setShowTransferModal(false)} className="p-2 hover:bg-white/10 rounded-lg"><X size={28} /></button>
+              </div>
+              <form onSubmit={handleTransferSubmit} className="p-8 space-y-6">
+                 <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Destination Project (A-Z Search)</label>
+                    <div className="relative mb-2">
+                       <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                       <input 
+                         type="text" 
+                         placeholder="Deep Search Project Name..." 
+                         className="w-full pl-10 pr-4 py-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold transition-all dark:text-white outline-none focus:ring-2 focus:ring-blue-500" 
+                         value={transferProjectSearch}
+                         onChange={(e) => setTransferProjectSearch(e.target.value)}
+                       />
+                    </div>
+                    <select required className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={transferForm.destProjectId} onChange={e => setTransferForm(p => ({ ...p, destProjectId: e.target.value }))}>
+                       <option value="">Select Destination Site...</option>
+                       {sortedTransferDestinations.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                 </div>
+
+                 <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Transfer Qty</label>
+                       <input type="number" required step="0.01" className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-black text-lg" value={transferForm.quantity} onChange={e => setTransferForm(p => ({ ...p, quantity: e.target.value }))} />
+                    </div>
+                    <div className="space-y-1.5">
+                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Move Date</label>
+                       <input type="date" required className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold" value={transferForm.date} onChange={e => setTransferForm(p => ({ ...p, date: e.target.value }))} />
+                    </div>
+                 </div>
+
+                 <div className="space-y-1.5"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Internal Note / Gate Pass #</label><textarea className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 rounded-2xl font-bold outline-none" rows={2} placeholder="e.g. Sent for slab work via Vehicle XYZ..." value={transferForm.note} onChange={e => setTransferForm(p => ({ ...p, note: e.target.value }))} /></div>
+
+                 <button type="submit" className="w-full bg-blue-600 text-white font-black py-4 rounded-3xl uppercase tracking-widest shadow-xl active:scale-95 transition-all">Authorize Stock Movement</button>
+              </form>
+           </div>
+        </div>
+      )}
+
+      {/* Record Consumption Modal with Deep Search */}
       {showInventoryUsageModal && viewingProject && (
         <div className="fixed inset-0 z-[140] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
-          <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-w-lg shadow-2xl overflow-hidden animate-in slide-in-from-bottom-8 duration-300">
+          <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-lg shadow-2xl overflow-hidden animate-in slide-in-from-bottom-8 duration-300">
              <div className="p-6 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-blue-50/30 dark:bg-blue-900/20">
                 <div className="flex gap-4 items-center">
                   <div className="p-3 bg-blue-600 text-white rounded-2xl shadow-lg"><Package size={24} /></div>
                   <div><h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">Record Consumption</h2><p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest leading-tight">Stock Deduction for {viewingProject.name}</p></div>
                 </div>
-                <button onClick={() => setShowInventoryUsageModal(false)} className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"><X size={28} /></button>
+                <button onClick={() => { setShowInventoryUsageModal(false); setUsageMaterialSearch(''); }} className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"><X size={28} /></button>
              </div>
              <form onSubmit={handleInventoryUsageSubmit} className="p-8 space-y-6">
                 <div className="space-y-2">
-                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Select Batch (Material / Vendor / Unit Price / Available)</label>
+                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Search & Select Batch (A-Z)</label>
+                   
+                   {/* Deep Search Input */}
+                   <div className="relative mb-2">
+                     <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                     <input 
+                       type="text" 
+                       placeholder="Deep Search: Name or Vendor..."
+                       className="w-full pl-10 pr-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold transition-all dark:text-white outline-none focus:ring-2 focus:ring-blue-500"
+                       value={usageMaterialSearch}
+                       onChange={(e) => setUsageMaterialSearch(e.target.value)}
+                     />
+                   </div>
+
                    <select required className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none appearance-none text-xs focus:ring-2 focus:ring-blue-500" value={`${inventoryUsageForm.materialId}|${inventoryUsageForm.batchId}`} onChange={e => { const [mId, bId] = e.target.value.split('|'); setInventoryUsageForm(p => ({ ...p, materialId: mId, batchId: bId })); }}>
-                     <option value="|">Choose stock batch...</option>
+                     <option value="|">{siteRelevantMaterials.length > 0 ? 'Choose stock batch...' : 'No batches found'}</option>
                      {siteRelevantMaterials.map((batch, idx) => (<option key={idx} value={`${batch.id}|${batch.batchId}`} className={batch.isLocal ? 'text-emerald-600 font-black' : 'text-blue-500 font-medium'}>{batch.name} / {batch.vendorName} / {formatCurrency(batch.unitPrice)} / {batch.available.toLocaleString()} {batch.unit}</option>))}
                   </select>
                 </div>
