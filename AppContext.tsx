@@ -172,7 +172,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             let targetUnitPrice = isPurchase ? (e.amount / e.materialQuantity!) : m.costPerUnit;
             let batchId = isPurchase ? undefined : e.parentPurchaseId;
 
-            // If it's a usage and no specific parentPurchaseId was passed, find latest from same vendor
             if (!isPurchase && !batchId && e.vendorId) {
                const streamPurchases = (m.history || [])
                   .filter(h => h.type === 'Purchase' && h.vendorId === e.vendorId)
@@ -196,7 +195,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               parentPurchaseId: batchId
             };
 
-            // Link the expense to the batch for future price syncs
             e.parentPurchaseId = batchId;
             if (!isPurchase && targetUnitPrice > 0) {
               e.amount = (e.materialQuantity || 0) * targetUnitPrice;
@@ -234,7 +232,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       let updatedPurchaseUnitPrice = 0;
       const isPurchase = e.inventoryAction === 'Purchase' || (!e.inventoryAction && !!e.vendorId);
 
-      // 1. Revert old stock effects
       if (oldExp && oldExp.materialId && oldExp.materialQuantity) {
         const wasPurchase = oldExp.inventoryAction === 'Purchase' || (!oldExp.inventoryAction && !!oldExp.vendorId);
         nextMaterials = nextMaterials.map(m => {
@@ -250,7 +247,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         });
       }
 
-      // 2. Apply new effects
       if (e.materialId && e.materialQuantity) {
         if (isPurchase) updatedPurchaseUnitPrice = e.amount / e.materialQuantity;
         
@@ -282,12 +278,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         });
       }
 
-      // 3. BATCH-SPECIFIC RECALCULATION:
-      // If a PURCHASE price changed, update ONLY those usages that are specifically linked to THIS purchase ID.
       let nextExpenses = prev.expenses.map(x => x.id === e.id ? e : x);
       if (isPurchase && updatedPurchaseUnitPrice > 0) {
-        
-        // Update Financial Ledger for linked usages
         nextExpenses = nextExpenses.map(exp => {
           if (exp.inventoryAction === 'Usage' && exp.parentPurchaseId === e.id) {
             return { ...exp, amount: (exp.materialQuantity || 0) * updatedPurchaseUnitPrice };
@@ -295,7 +287,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           return exp;
         });
         
-        // Update Inventory Ledger for linked usages
         nextMaterials = nextMaterials.map(m => {
           if (m.id === e.materialId) {
             return {
@@ -391,7 +382,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const addIncome = async (i: Income) => {
     await apiRequest('POST', '/income', i);
-    setState(prev => ({ ...prev, incomes: [...prev.incomes, i] }));
+    setState(prev => {
+      const nextInvoices = prev.invoices.map(inv => {
+        if (i.invoiceId && inv.id === i.invoiceId) {
+          // If a payment is linked, check if it fully covers it
+          const totalAfterThis = prev.incomes
+            .filter(inc => inc.invoiceId === inv.id)
+            .reduce((sum, inc) => sum + inc.amount, 0) + i.amount;
+          // Fix: Explicitly cast status to literal type to avoid TypeScript inference mismatching status as a broad 'string'
+          return { ...inv, status: (totalAfterThis >= inv.amount - 0.01 ? 'Paid' : 'Sent') as Invoice['status'] };
+        }
+        return inv;
+      });
+      return { ...prev, incomes: [...prev.incomes, i], invoices: nextInvoices };
+    });
   };
 
   const updateIncome = async (i: Income) => {
@@ -401,7 +405,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const deleteIncome = async (id: string) => {
     await apiRequest('DELETE', `/income/${id}`);
-    setState(prev => ({ ...prev, incomes: prev.incomes.filter(i => i.id !== id) }));
+    setState(prev => {
+      const oldInc = prev.incomes.find(i => i.id === id);
+      let nextInvoices = [...prev.invoices];
+      if (oldInc && oldInc.invoiceId) {
+        nextInvoices = nextInvoices.map(inv => {
+          if (inv.id === oldInc.invoiceId) {
+            // Re-calculate remaining if income deleted
+            const remainingIncomes = prev.incomes
+              .filter(inc => inc.invoiceId === inv.id && inc.id !== id)
+              .reduce((sum, inc) => sum + inc.amount, 0);
+            // Fix: Explicitly cast status to literal type to avoid TypeScript inference mismatching status as a broad 'string'
+            return { ...inv, status: (remainingIncomes >= inv.amount - 0.01 ? 'Paid' : 'Sent') as Invoice['status'] };
+          }
+          return inv;
+        });
+      }
+      return { ...prev, incomes: prev.incomes.filter(i => i.id !== id), invoices: nextInvoices };
+    });
   };
 
   const addInvoice = async (inv: Invoice) => {
@@ -411,7 +432,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const updateInvoice = async (inv: Invoice) => {
     await apiRequest('PUT', `/invoices/${inv.id}`, inv);
-    setState(prev => ({ ...prev, invoices: prev.invoices.map(i => i.id === inv.id ? i : i) }));
+    setState(prev => ({ ...prev, invoices: prev.invoices.map(i => i.id === inv.id ? inv : i) }));
   };
 
   const deleteInvoice = async (id: string) => {

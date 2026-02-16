@@ -21,6 +21,7 @@ export interface Project {
   status: ProjectStatus;
   description?: string;
   contactNumber?: string;
+  isGodown?: boolean; // New property to identify Godowns
 }
 
 export type VendorCategory = string;
@@ -75,7 +76,8 @@ export interface Expense {
   notes: string;
   invoiceUrl?: string;
   category: string;
-  inventoryAction?: 'Purchase' | 'Usage';
+  // Fix: Added 'Transfer' to allowed inventoryAction values to support inter-site material movement
+  inventoryAction?: 'Purchase' | 'Usage' | 'Transfer';
   parentPurchaseId?: string; // Links a usage expense to the original purchase ID
 }
 

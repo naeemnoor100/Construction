@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { AppProvider } from './AppContext';
 import { Layout } from './components/Layout';
@@ -9,6 +8,7 @@ import { Inventory } from './components/Inventory';
 import { ExpenseTracker } from './components/ExpenseTracker';
 import { Reports } from './components/Reports';
 import { ProjectIncome } from './components/ProjectIncome';
+import { InvoiceManager } from './components/InvoiceManager';
 import { Settings } from './components/Settings';
 
 const MainApp: React.FC = () => {
@@ -20,6 +20,8 @@ const MainApp: React.FC = () => {
         return <Dashboard />;
       case 'projects':
         return <ProjectList />;
+      case 'invoices':
+        return <InvoiceManager />;
       case 'income':
         return <ProjectIncome />;
       case 'vendors':

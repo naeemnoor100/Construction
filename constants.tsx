@@ -11,7 +11,20 @@ export const MOCK_USER: User = {
 export const INITIAL_STATE: AppState = {
   currentUser: MOCK_USER,
   theme: 'light',
-  projects: [],
+  projects: [
+    {
+      id: 'godown-001',
+      name: 'Central Godown (Main Store)',
+      client: 'Internal',
+      location: 'Central Logistics Hub',
+      startDate: new Date().toISOString().split('T')[0],
+      endDate: '',
+      budget: 0,
+      status: 'Active',
+      description: 'Primary material reception and distribution hub.',
+      isGodown: true
+    }
+  ],
   vendors: [],
   materials: [],
   expenses: [],

@@ -37,7 +37,9 @@ import {
   Link,
   Layers,
   Copy,
-  LayoutGrid
+  LayoutGrid,
+  Warehouse,
+  Truck
 } from 'lucide-react';
 import { useApp } from '../AppContext';
 import { Material, MaterialUnit, StockHistoryEntry, Expense, Project, Vendor } from '../types';
@@ -46,7 +48,7 @@ const formatCurrency = (val: number) => `Rs. ${val.toLocaleString('en-IN')}`;
 
 type InventorySortOption = 'name' | 'stock-low' | 'stock-high' | 'cost';
 type HistorySortOption = 'date-desc' | 'date-asc' | 'qty-high' | 'qty-low';
-type HistoryTab = 'all' | 'purchases' | 'usage';
+type HistoryTab = 'all' | 'purchases' | 'usage' | 'transfers';
 
 interface BulkRow {
   id: string;
@@ -89,6 +91,18 @@ export const Inventory: React.FC = () => {
   const [bulkGlobalProject, setBulkGlobalProject] = useState('');
   const [bulkDate, setBulkDate] = useState(new Date().toISOString().split('T')[0]);
 
+  // Keep historyMaterial synced with the master list after any global state updates
+  useEffect(() => {
+    if (historyMaterial) {
+      const latest = materials.find(m => m.id === historyMaterial.id);
+      if (latest) {
+        setHistoryMaterial(latest);
+      } else {
+        setHistoryMaterial(null);
+      }
+    }
+  }, [materials]);
+
   const isHistoryEntryLocked = useMemo(() => {
     if (!editingHistoryEntry) return false;
     return payments.some(p => p.materialBatchId === editingHistoryEntry.entry.id);
@@ -110,14 +124,14 @@ export const Inventory: React.FC = () => {
   }, []);
 
   const [procureData, setProcureData] = useState({
-    materialId: '', newName: '', vendorId: vendors[0]?.id || '', projectId: projects[0]?.id || '', quantity: '', unit: stockingUnits[0] || 'Bag', costPerUnit: '', date: new Date().toISOString().split('T')[0], note: ''
+    materialId: '', newName: '', vendorId: vendors[0]?.id || '', projectId: projects.find(p => p.isGodown)?.id || projects[0]?.id || '', quantity: '', unit: stockingUnits[0] || 'Bag', costPerUnit: '', date: new Date().toISOString().split('T')[0], note: ''
   });
 
   const [usageData, setUsageData] = useState({
     materialId: '', 
     vendorId: '', 
     batchId: '', 
-    projectId: projects[0]?.id || '', 
+    projectId: projects.find(p => !p.isGodown)?.id || projects[0]?.id || '', 
     quantity: '', 
     date: new Date().toISOString().split('T')[0], 
     notes: ''
@@ -173,7 +187,7 @@ export const Inventory: React.FC = () => {
   const currentTotalValue = (selectedBatchForTotal?.unitPrice || 0) * (parseFloat(usageData.quantity) || 0);
 
   const handleOpenUsageModal = (materialId?: string, projectId?: string) => {
-    setUsageData({ materialId: materialId || '', vendorId: '', batchId: '', projectId: projectId || projects[0]?.id || '', quantity: '', date: new Date().toISOString().split('T')[0], notes: '' });
+    setUsageData({ materialId: materialId || '', vendorId: '', batchId: '', projectId: projectId || projects.find(p => !p.isGodown)?.id || projects[0]?.id || '', quantity: '', date: new Date().toISOString().split('T')[0], notes: '' });
     setShowUsageModal(true);
   };
 
@@ -199,12 +213,10 @@ export const Inventory: React.FC = () => {
 
       const history = mat.history || [];
       if (projectFilter === 'All') {
-        // Global Stock Value: sum of all quantity * unitPrice
         stockValue = history.reduce((sum, h) => sum + (h.quantity * (h.unitPrice || mat.costPerUnit)), 0);
       } else {
         const siteEntries = history.filter(h => h.projectId === projectFilter);
         siteBalance = siteEntries.reduce((sum, h) => sum + h.quantity, 0);
-        // Site Stock Value: sum of site activity quantity * unitPrice
         stockValue = siteEntries.reduce((sum, h) => sum + (h.quantity * (h.unitPrice || mat.costPerUnit)), 0);
         hasProjectLink = siteEntries.some(h => h.quantity > 0);
       }
@@ -231,9 +243,10 @@ export const Inventory: React.FC = () => {
   const filteredHistory = useMemo(() => {
     if (!historyMaterial || !historyMaterial.history) return [];
     let result = historyMaterial.history.filter(entry => {
-      if (entry.type === 'Transfer') return false;
+      if (activeHistoryTab === 'all' && entry.type === 'Transfer') return false;
       if (activeHistoryTab === 'purchases' && entry.type !== 'Purchase') return false;
       if (activeHistoryTab === 'usage' && entry.type !== 'Usage') return false;
+      if (activeHistoryTab === 'transfers' && entry.type !== 'Transfer') return false;
       
       const projectName = projects.find(p => p.id === entry.projectId)?.name || '';
       const vendorName = vendors.find(v => v.id === entry.vendorId)?.name || '';
@@ -265,7 +278,7 @@ export const Inventory: React.FC = () => {
       await addExpense({ id: expenseId, date: procureData.date, projectId: procureData.projectId, vendorId: procureData.vendorId, amount: totalAmount, paymentMethod: 'Bank', category: 'Material', notes: procureData.note || `Restock Procurement: ${qty} units`, materialId: procureData.materialId, materialQuantity: qty, inventoryAction: 'Purchase' });
     }
     setShowProcureModal(false);
-    setProcureData({ materialId: '', newName: '', vendorId: vendors[0]?.id || '', projectId: projects[0]?.id || '', quantity: '', unit: stockingUnits[0] || 'Bag', costPerUnit: '', date: new Date().toISOString().split('T')[0], note: '' });
+    setProcureData({ materialId: '', newName: '', vendorId: vendors[0]?.id || '', projectId: projects.find(p => p.isGodown)?.id || projects[0]?.id || '', quantity: '', unit: stockingUnits[0] || 'Bag', costPerUnit: '', date: new Date().toISOString().split('T')[0], note: '' });
   };
 
   const addBulkRow = () => setBulkRows([...bulkRows, { id: Date.now().toString(), materialId: '', quantity: '', unitPrice: '', vendorId: bulkGlobalVendor, projectId: bulkGlobalProject }]);
@@ -350,8 +363,14 @@ export const Inventory: React.FC = () => {
     if (payments.some(p => p.materialBatchId === entryId)) { alert("Lock Violation: This entry is linked to payments in the Supplier Ledger."); return; }
     const expenseId = entryId.startsWith('sh-exp-') ? entryId.replace('sh-exp-', '') : null;
     if (!confirm("Confirm Sync: This will delete the financial expense and revert material stock. Continue?")) return;
-    if (expenseId) { await deleteExpense(expenseId); const updated = materials.find(m => m.id === material.id); if (updated) setHistoryMaterial(updated); }
-    else { const newHistory = material.history?.filter(h => h.id !== entryId) || []; const totalPurchased = newHistory.filter(h => h.type === 'Purchase').reduce((sum, h) => sum + h.quantity, 0); const totalUsed = Math.abs(newHistory.filter(h => h.type === 'Usage').reduce((sum, h) => sum + h.quantity, 0)); updateMaterial({ ...material, totalPurchased, totalUsed, history: newHistory }); setHistoryMaterial({ ...material, totalPurchased, totalUsed, history: newHistory }); }
+    if (expenseId) { 
+      await deleteExpense(expenseId); 
+    } else { 
+      const newHistory = material.history?.filter(h => h.id !== entryId) || []; 
+      const totalPurchased = newHistory.filter(h => h.type === 'Purchase' && h.quantity > 0).reduce((sum, h) => sum + h.quantity, 0); 
+      const totalUsed = Math.abs(newHistory.filter(h => h.type === 'Usage' && h.quantity < 0).reduce((sum, h) => sum + h.quantity, 0)); 
+      updateMaterial({ ...material, totalPurchased, totalUsed, history: newHistory }); 
+    }
   };
 
   const handleEditHistorySubmit = async (e: React.FormEvent) => {
@@ -361,6 +380,7 @@ export const Inventory: React.FC = () => {
     const newQty = parseFloat(historyEditFormData.quantity) || 0;
     const newPrice = parseFloat(historyEditFormData.unitPrice) || 0;
     const expenseId = oldEntry.id.startsWith('sh-exp-') ? oldEntry.id.replace('sh-exp-', '') : null;
+    
     if (expenseId) {
       const oldExp = expenses.find(x => x.id === expenseId);
       if (oldExp) {
@@ -375,8 +395,6 @@ export const Inventory: React.FC = () => {
           notes: historyEditFormData.note,
           unitPrice: newPrice 
         });
-        const updated = materials.find(m => m.id === material.id);
-        if (updated) setHistoryMaterial(updated);
       }
     } else {
       const newHistory = material.history?.map(h => {
@@ -386,7 +404,6 @@ export const Inventory: React.FC = () => {
       const totalPurchased = newHistory.filter(h => h.type === 'Purchase' && h.quantity > 0).reduce((sum, h) => sum + h.quantity, 0);
       const totalUsed = Math.abs(newHistory.filter(h => h.type === 'Usage' && h.quantity < 0).reduce((sum, h) => sum + h.quantity, 0));
       updateMaterial({ ...material, totalPurchased, totalUsed, history: newHistory });
-      setHistoryMaterial({ ...material, totalPurchased, totalUsed, history: newHistory });
     }
     setShowEditHistoryModal(false);
     setEditingHistoryEntry(null);
@@ -397,12 +414,12 @@ export const Inventory: React.FC = () => {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h2 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight uppercase">Inventory Ledger</h2>
-          <p className="text-slate-500 dark:text-slate-400 text-sm font-medium">Manage assets with automated financial & budget synchronization.</p>
+          <p className="text-slate-500 dark:text-slate-400 text-sm font-medium">Manage godown stock and project site assets.</p>
         </div>
         <div className="flex flex-wrap gap-3 w-full sm:w-auto">
-          <button onClick={() => setShowBulkModal(true)} className="flex-1 sm:flex-none bg-emerald-600 text-white px-5 py-3 rounded-2xl font-bold flex items-center justify-center gap-2 active:scale-95 transition-all shadow-xl"><Layers size={18} /> Bulk Inward</button>
-          <button onClick={() => setShowProcureModal(true)} className="flex-1 sm:flex-none bg-slate-900 dark:bg-slate-800 text-white px-5 py-3 rounded-2xl font-bold flex items-center justify-center gap-2 active:scale-95 transition-all shadow-xl"><Plus size={18} /> Procure</button>
-          <button onClick={() => handleOpenUsageModal()} className="flex-1 sm:flex-none bg-blue-600 text-white px-5 py-3 rounded-2xl font-bold flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all"><TrendingDown size={18} /> Record Consumption</button>
+          <button onClick={() => setShowBulkModal(true)} className="flex-1 sm:flex-none bg-emerald-600 text-white px-5 py-3 rounded-2xl font-bold flex items-center justify-center gap-2 active:scale-95 transition-all shadow-xl"><Layers size={18} /> Bulk Hub Inward</button>
+          <button onClick={() => setShowProcureModal(true)} className="flex-1 sm:flex-none bg-slate-900 dark:bg-slate-800 text-white px-5 py-3 rounded-2xl font-bold flex items-center justify-center gap-2 active:scale-95 transition-all shadow-xl"><Plus size={18} /> Hub Procure</button>
+          <button onClick={() => handleOpenUsageModal()} className="flex-1 sm:flex-none bg-blue-600 text-white px-5 py-3 rounded-2xl font-bold flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all"><TrendingDown size={18} /> Record Use</button>
         </div>
       </div>
 
@@ -413,10 +430,10 @@ export const Inventory: React.FC = () => {
         </div>
         <div className="flex flex-wrap gap-2">
           <div className="relative">
-             <Briefcase className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+             <Warehouse className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
              <select className="pl-10 pr-8 py-3.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl text-[10px] font-black uppercase tracking-widest outline-none appearance-none dark:text-white" value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)}>
-                <option value="All">Site Filter: All</option>
-                {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                <option value="All">Hub Filter: All</option>
+                {projects.map(p => <option key={p.id} value={p.id}>{p.name} {p.isGodown ? '(Godown)' : ''}</option>)}
              </select>
           </div>
           <div className="relative">
@@ -437,8 +454,8 @@ export const Inventory: React.FC = () => {
             <thead className="bg-slate-50 dark:bg-slate-900 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 dark:border-slate-700">
               <tr>
                 <th className="px-8 py-5">Material Asset</th>
-                <th className="px-8 py-5">Value {projectFilter !== 'All' ? '(At Site)' : '(Total)'}</th>
-                <th className="px-8 py-5">Status / Level</th>
+                <th className="px-8 py-5">Value {projectFilter !== 'All' ? '(At Hub)' : '(Total Pool)'}</th>
+                <th className="px-8 py-5">Availability Status</th>
                 <th className="px-8 py-5 text-right">Control</th>
               </tr>
             </thead>
@@ -446,11 +463,15 @@ export const Inventory: React.FC = () => {
               {filteredMaterials.map((mat) => {
                 const remaining = mat.siteBalance;
                 const isProjectFiltered = projectFilter !== 'All';
+                const filterProj = projects.find(p => p.id === projectFilter);
+                
                 return (
                   <tr key={mat.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/50 transition-colors group">
                     <td className="px-8 py-5">
                       <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 bg-blue-50 dark:bg-slate-700 text-blue-600 dark:text-blue-300 rounded-2xl flex items-center justify-center font-black text-lg group-hover:scale-110 transition-transform">{mat.name.charAt(0)}</div>
+                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-lg group-hover:scale-110 transition-transform ${isProjectFiltered && filterProj?.isGodown ? 'bg-slate-900 text-white' : 'bg-blue-50 dark:bg-slate-700 text-blue-600 dark:text-blue-300'}`}>
+                           {mat.name.charAt(0)}
+                        </div>
                         <div>
                           <p className="font-black text-sm text-slate-900 dark:text-slate-100 uppercase tracking-tight">{mat.name}</p>
                           <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter">Unit: {mat.unit}</p>
@@ -458,11 +479,17 @@ export const Inventory: React.FC = () => {
                       </div>
                     </td>
                     <td className="px-8 py-5 text-xs font-black text-slate-600 dark:text-slate-400">{formatCurrency(mat.stockValue)}</td>
-                    <td className="px-8 py-5"><span className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 ${remaining < 10 ? 'bg-red-50 text-red-600 border-red-100 dark:bg-red-900/10 dark:border-red-900/20' : 'bg-emerald-50 text-emerald-600 border-emerald-100 dark:bg-emerald-900/20 dark:border-emerald-800'}`}>{remaining.toLocaleString()} {mat.unit}s {isProjectFiltered ? 'at Site' : 'Global'}</span></td>
+                    <td className="px-8 py-5">
+                       <span className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 ${remaining < 10 ? 'bg-red-50 text-red-600 border-red-100 dark:bg-red-900/10 dark:border-red-900/20' : 'bg-emerald-50 text-emerald-600 border-emerald-100 dark:bg-emerald-900/20 dark:border-emerald-800'}`}>
+                          {remaining.toLocaleString()} {mat.unit}s {isProjectFiltered ? (filterProj?.isGodown ? 'in Godown' : 'on Site') : 'Global Pool'}
+                       </span>
+                    </td>
                     <td className="px-8 py-5 text-right">
                        <div className="flex justify-end gap-2 items-center">
-                         <button onClick={() => handleOpenUsageModal(mat.id, isProjectFiltered ? projectFilter : undefined)} className={`px-4 py-2.5 text-[10px] font-black uppercase tracking-widest rounded-2xl transition-all shadow-sm flex items-center gap-2 ${isProjectFiltered ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-blue-50 text-blue-600 dark:bg-blue-900/20 hover:bg-blue-600 hover:text-white'}`} title="Record Consumption"><TrendingDown size={14} /> {isProjectFiltered ? 'Record Use on Site' : 'Record Consumption'}</button>
-                         <button onClick={() => { setHistoryMaterial(mat); setHistorySearch(''); setHistorySort('date-desc'); setActiveHistoryTab('all'); }} className="p-3 text-slate-400 bg-slate-50 dark:bg-slate-700/50 rounded-2xl hover:text-slate-900 dark:hover:text-white transition-all shadow-sm" title="View Logs"><History size={20} /></button>
+                         <button onClick={() => handleOpenUsageModal(mat.id, isProjectFiltered ? projectFilter : undefined)} className={`px-4 py-2.5 text-[10px] font-black uppercase tracking-widest rounded-2xl transition-all shadow-sm flex items-center gap-2 ${isProjectFiltered && !filterProj?.isGodown ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-blue-50 text-blue-600 dark:bg-blue-900/20 hover:bg-blue-600 hover:text-white'}`} title="Dispatch / Use">
+                           {isProjectFiltered && filterProj?.isGodown ? <><Truck size={14} /> Dispatch Hub</> : <><TrendingDown size={14} /> Record Use</>}
+                         </button>
+                         <button onClick={() => { setHistoryMaterial(mat); setHistorySearch(''); setHistorySort('date-desc'); setActiveHistoryTab('all'); }} className="p-3 text-slate-400 bg-slate-50 dark:bg-slate-700/50 rounded-2xl hover:text-slate-900 dark:hover:text-white transition-all shadow-sm" title="Hub History"><History size={20} /></button>
                          <button onClick={() => handleOpenEditModal(mat)} className="p-3 text-slate-400 hover:text-blue-600 transition-colors"><Pencil size={18} /></button>
                          <button onClick={() => { if(confirm(`Permanent Action: Are you sure you want to delete ${mat.name}?`)) deleteMaterial(mat.id); }} className="p-3 text-slate-300 hover:text-red-600 transition-colors"><Trash2 size={18} /></button>
                        </div>
@@ -485,8 +512,8 @@ export const Inventory: React.FC = () => {
                     <Layers size={28} />
                  </div>
                  <div>
-                    <h2 className="text-2xl font-black text-slate-900 dark:text-white uppercase tracking-tighter leading-none">Bulk Stock Inward</h2>
-                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Multi-site & Multi-vendor procurement log</p>
+                    <h2 className="text-2xl font-black text-slate-900 dark:text-white uppercase tracking-tighter leading-none">Bulk Hub Stocking</h2>
+                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Multi-hub reception and multi-vendor log</p>
                  </div>
                </div>
                <button onClick={() => setShowBulkModal(false)} className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"><X size={36} /></button>
@@ -494,21 +521,21 @@ export const Inventory: React.FC = () => {
 
             <div className="p-6 bg-slate-50/50 dark:bg-slate-900/20 border-b border-slate-100 dark:border-slate-700 flex flex-wrap gap-6 shrink-0">
                <div className="space-y-1.5 flex-1 min-w-[200px]">
-                  <label className="text-[9px] font-black text-slate-400 uppercase px-1">Global Date</label>
+                  <label className="text-[9px] font-black text-slate-400 uppercase px-1">Value Date</label>
                   <input type="date" className="w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold dark:text-white" value={bulkDate} onChange={e => setBulkDate(e.target.value)} />
                </div>
                <div className="space-y-1.5 flex-1 min-w-[200px]">
-                  <label className="text-[9px] font-black text-slate-400 uppercase px-1">Global Vendor (Auto-Fill)</label>
+                  <label className="text-[9px] font-black text-slate-400 uppercase px-1">Primary Vendor (Auto-Fill)</label>
                   <select className="w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold dark:text-white" value={bulkGlobalVendor} onChange={e => { setBulkGlobalVendor(e.target.value); setBulkRows(bulkRows.map(r => ({ ...r, vendorId: e.target.value }))); }}>
-                    <option value="">None</option>
+                    <option value="">Manual Selection</option>
                     {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
                   </select>
                </div>
                <div className="space-y-1.5 flex-1 min-w-[200px]">
-                  <label className="text-[9px] font-black text-slate-400 uppercase px-1">Global Project (Auto-Fill)</label>
+                  <label className="text-[9px] font-black text-slate-400 uppercase px-1">Primary Godown (Auto-Fill)</label>
                   <select className="w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold dark:text-white" value={bulkGlobalProject} onChange={e => { setBulkGlobalProject(e.target.value); setBulkRows(bulkRows.map(r => ({ ...r, projectId: e.target.value }))); }}>
-                    <option value="">None</option>
-                    {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    <option value="">Manual Selection</option>
+                    {projects.map(p => <option key={p.id} value={p.id}>{p.name} {p.isGodown ? '(Godown)' : '(Site)'}</option>)}
                   </select>
                </div>
             </div>
@@ -546,12 +573,12 @@ export const Inventory: React.FC = () => {
                        )}
                        {!bulkGlobalProject && (
                           <div className="md:col-span-2 space-y-1">
-                            <label className="text-[8px] font-black text-slate-400 uppercase px-1">Site</label>
+                            <label className="text-[8px] font-black text-slate-400 uppercase px-1">Target Hub</label>
                             <select className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 rounded-lg text-xs font-bold dark:text-white" value={row.projectId} onChange={e => {
                                updateBulkRow(row.id, 'projectId', e.target.value);
                             }}>
-                               <option value="">Select Site...</option>
-                               {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                               <option value="">Select Hub...</option>
+                               {projects.map(p => <option key={p.id} value={p.id}>{p.name} {p.isGodown ? '(G)' : '(S)'}</option>)}
                             </select>
                           </div>
                        )}
@@ -561,19 +588,19 @@ export const Inventory: React.FC = () => {
                     </div>
                   ))}
                </div>
-               <button onClick={addBulkRow} className="mt-6 flex items-center gap-2 px-6 py-3 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-2xl text-[10px] font-black uppercase hover:bg-slate-200 transition-all border-2 border-dashed border-slate-200 dark:border-slate-600 w-full justify-center"><Plus size={16} /> Add New Entry Row</button>
+               <button onClick={addBulkRow} className="mt-6 flex items-center gap-2 px-6 py-3 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-2xl text-[10px] font-black uppercase hover:bg-slate-200 transition-all border-2 border-dashed border-slate-200 dark:border-slate-600 w-full justify-center"><Plus size={16} /> Add New Hub Entry</button>
             </div>
 
             <div className="p-8 border-t border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800 flex flex-col sm:flex-row justify-between items-center gap-4 shrink-0">
                <div className="text-left">
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Current Batch Impact</p>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Hub Reception</p>
                   <p className="text-xl font-black text-emerald-600">
                     {formatCurrency(bulkRows.reduce((sum, r) => sum + ((parseFloat(r.quantity) || 0) * (parseFloat(r.unitPrice) || 0)), 0))}
                   </p>
                </div>
                <div className="flex gap-4 w-full sm:w-auto">
-                  <button onClick={() => setShowBulkModal(false)} className="flex-1 sm:flex-none px-10 py-4 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400 font-black rounded-2xl text-xs uppercase tracking-widest">Cancel</button>
-                  <button onClick={handleBulkProcureSubmit} className="flex-1 sm:flex-none px-10 py-4 bg-emerald-600 text-white font-black rounded-2xl text-xs uppercase tracking-widest shadow-xl shadow-emerald-100 dark:shadow-none active:scale-95 transition-all">Process Bulk Inward</button>
+                  <button onClick={() => setShowBulkModal(false)} className="px-10 py-4 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400 font-black rounded-2xl text-xs uppercase tracking-widest">Cancel</button>
+                  <button onClick={handleBulkProcureSubmit} className="px-10 py-4 bg-emerald-600 text-white font-black rounded-2xl text-xs uppercase tracking-widest shadow-xl shadow-emerald-100 dark:shadow-none active:scale-95 transition-all">Process Hub Reception</button>
                </div>
             </div>
           </div>
@@ -587,18 +614,18 @@ export const Inventory: React.FC = () => {
               <div className="p-8 border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 flex justify-between items-center shrink-0">
                  <div className="flex gap-4 items-center">
                    <div className="p-4 bg-slate-900 dark:bg-slate-700 text-white rounded-2xl shadow-lg">
-                      <ShoppingCart size={24} />
+                      <Warehouse size={24} />
                    </div>
                    <div>
-                      <h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">Stock Procurement</h2>
-                      <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Record inward material and update budget</p>
+                      <h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">Hub Stock Procure</h2>
+                      <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Record material arrival at godown or site hub</p>
                    </div>
                  </div>
                  <button onClick={() => setShowProcureModal(false)} className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"><X size={32} /></button>
               </div>
               <form onSubmit={handleProcureStock} className="p-8 space-y-5 overflow-y-auto no-scrollbar max-h-[75vh] pb-safe">
                 <div className="space-y-1.5">
-                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Select Asset / Create New</label>
+                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Material Asset / Category</label>
                    <select 
                     className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none appearance-none transition-all focus:ring-2 focus:ring-blue-500" 
                     value={procureData.materialId} 
@@ -606,7 +633,7 @@ export const Inventory: React.FC = () => {
                     required
                   >
                     <option value="">Choose material...</option>
-                    <option value="new">+ Register New Asset Type</option>
+                    <option value="new">+ Hub New Asset Category</option>
                     {materials.map(m => <option key={m.id} value={m.id}>{m.name} ({m.unit})</option>)}
                   </select>
                 </div>
@@ -628,10 +655,9 @@ export const Inventory: React.FC = () => {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1.5">
-                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Site Destination</label>
+                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Target Hub (Godown or Site)</label>
                      <select className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none appearance-none" value={procureData.projectId} onChange={e => setProcureData(p => ({ ...p, projectId: e.target.value }))} required>
-                        <option value="">Select Project Site...</option>
-                        {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                        {projects.map(p => <option key={p.id} value={p.id}>{p.name} {p.isGodown ? '(Godown Hub)' : ''}</option>)}
                      </select>
                   </div>
                   <div className="space-y-1.5">
@@ -645,11 +671,11 @@ export const Inventory: React.FC = () => {
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Quantity</label>
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Qty Received</label>
                       <input type="number" required step="0.01" className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-black dark:text-white outline-none" value={procureData.quantity} onChange={e => setProcureData(p => ({ ...p, quantity: e.target.value }))} placeholder="0.00" />
                    </div>
                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Unit Price (Rs.)</label>
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Base Price (Rs.)</label>
                       <input type="number" required step="0.01" className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-black dark:text-white outline-none" value={procureData.costPerUnit} onChange={e => setProcureData(p => ({ ...p, costPerUnit: e.target.value }))} placeholder="0.00" />
                    </div>
                    <div className="space-y-1.5">
@@ -659,13 +685,13 @@ export const Inventory: React.FC = () => {
                 </div>
 
                 <div className="space-y-1.5">
-                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Activity Note</label>
-                   <textarea rows={2} className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={procureData.note} onChange={e => setProcureData(p => ({ ...p, note: e.target.value }))} placeholder="Arrival details..." />
+                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Hub Entry Note</label>
+                   <textarea rows={2} className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={procureData.note} onChange={e => setProcureData(p => ({ ...p, note: e.target.value }))} placeholder="Hub storage details..." />
                 </div>
 
                 <div className="flex gap-4 pt-6">
                    <button type="button" onClick={() => setShowProcureModal(false)} className="flex-1 bg-slate-100 dark:bg-slate-700 py-4 rounded-[1.5rem] font-bold text-sm uppercase tracking-widest text-slate-500">Discard</button>
-                   <button type="submit" className="flex-1 bg-slate-900 dark:bg-white text-white dark:text-slate-900 py-4 rounded-[1.5rem] font-black shadow-2xl transition-all active:scale-95 text-sm uppercase tracking-widest">Register Inward Stock</button>
+                   <button type="submit" className="flex-1 bg-emerald-600 text-white py-4 rounded-[1.5rem] font-black shadow-2xl transition-all active:scale-95 text-sm uppercase tracking-widest">Authorize Hub Stocking</button>
                 </div>
               </form>
            </div>
@@ -680,23 +706,24 @@ export const Inventory: React.FC = () => {
                <div className="flex gap-4 items-center">
                  <div className="w-14 h-14 bg-slate-900 dark:bg-slate-700 text-white rounded-[1.5rem] flex items-center justify-center font-black text-2xl shadow-xl">{historyMaterial.name.charAt(0)}</div>
                  <div>
-                    <h2 className="text-2xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">Stock Activity History</h2>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{historyMaterial.name} Ledger • Current Global Stock: {(historyMaterial.totalPurchased - historyMaterial.totalUsed).toLocaleString()} {historyMaterial.unit}s</p>
+                    <h2 className="text-2xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">Asset Hub Log</h2>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{historyMaterial.name} Ledger • Pool Availability: {(historyMaterial.totalPurchased - historyMaterial.totalUsed).toLocaleString()} {historyMaterial.unit}s</p>
                  </div>
                </div>
                <button onClick={() => setHistoryMaterial(null)} className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"><X size={36} /></button>
             </div>
 
             <div className="flex bg-slate-50/50 dark:bg-slate-900/20 border-b border-slate-100 dark:border-slate-700 px-8 shrink-0">
-               <button onClick={() => setActiveHistoryTab('all')} className={`px-6 py-4 text-[10px] font-black uppercase tracking-widest border-b-4 transition-all flex items-center gap-2 ${activeHistoryTab === 'all' ? 'border-slate-900 text-slate-900 dark:border-white dark:text-white' : 'border-transparent text-slate-400 hover:text-slate-600'}`}><ClipboardList size={14} /> Full Log</button>
-               <button onClick={() => setActiveHistoryTab('purchases')} className={`px-6 py-4 text-[10px] font-black uppercase tracking-widest border-b-4 transition-all flex items-center gap-2 ${activeHistoryTab === 'purchases' ? 'border-emerald-600 text-emerald-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}><ShoppingCart size={14} /> Inward (Procurement)</button>
-               <button onClick={() => setActiveHistoryTab('usage')} className={`px-6 py-4 text-[10px] font-black uppercase tracking-widest border-b-4 transition-all flex items-center gap-2 ${activeHistoryTab === 'usage' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}><TrendingDown size={14} /> Usage History</button>
+               <button onClick={() => setActiveHistoryTab('all')} className={`px-6 py-4 text-[10px] font-black uppercase tracking-widest border-b-4 transition-all flex items-center gap-2 ${activeHistoryTab === 'all' ? 'border-slate-900 text-slate-900 dark:border-white dark:text-white' : 'border-transparent text-slate-400 hover:text-slate-600'}`}><ClipboardList size={14} /> Full Hub Log</button>
+               <button onClick={() => setActiveHistoryTab('purchases')} className={`px-6 py-4 text-[10px] font-black uppercase tracking-widest border-b-4 transition-all flex items-center gap-2 ${activeHistoryTab === 'purchases' ? 'border-emerald-600 text-emerald-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}><ShoppingCart size={14} /> Reception</button>
+               <button onClick={() => setActiveHistoryTab('usage')} className={`px-6 py-4 text-[10px] font-black uppercase tracking-widest border-b-4 transition-all flex items-center gap-2 ${activeHistoryTab === 'usage' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}><TrendingDown size={14} /> Consumption</button>
+               <button onClick={() => setActiveHistoryTab('transfers')} className={`px-6 py-4 text-[10px] font-black uppercase tracking-widest border-b-4 transition-all flex items-center gap-2 ${activeHistoryTab === 'transfers' ? 'border-amber-600 text-amber-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}><ArrowRightLeft size={14} /> Dispatch/Transfers</button>
             </div>
 
             <div className="px-8 py-4 bg-slate-50 dark:bg-slate-900/50 border-b border-slate-100 dark:border-slate-700 flex flex-col sm:flex-row gap-4 items-center shrink-0">
                <div className="relative flex-1 w-full">
                   <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                  <input type="text" placeholder="Filter by Date, Qty, Site, Vendor or Notes..." className="w-full pl-11 pr-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold dark:text-white outline-none focus:ring-2 focus:ring-blue-500 shadow-sm" value={historySearch} onChange={(e) => setHistorySearch(e.target.value)} />
+                  <input type="text" placeholder="Filter by Date, Hub, Site, Driver or Note..." className="w-full pl-11 pr-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold dark:text-white outline-none focus:ring-2 focus:ring-blue-500 shadow-sm" value={historySearch} onChange={(e) => setHistorySearch(e.target.value)} />
                </div>
             </div>
 
@@ -706,20 +733,19 @@ export const Inventory: React.FC = () => {
                     <table className="w-full text-left min-w-[850px]">
                       <thead className="bg-slate-50 dark:bg-slate-900 text-[10px] font-black text-slate-400 uppercase border-b border-slate-100 dark:border-slate-700">
                         <tr>
-                          <th className="px-8 py-5">Value Date</th>
-                          <th className="px-8 py-5">Activity Details</th>
-                          <th className="px-8 py-5">Quantity Change</th>
-                          <th className="px-8 py-5 text-right">Unit Price</th>
-                          <th className="px-8 py-5 text-right">Total Value</th>
-                          <th className="px-8 py-5">Site Allocation / Supplier</th>
-                          <th className="px-8 py-5 text-right">Actions</th>
+                          <th className="px-8 py-5">Log Date</th>
+                          <th className="px-8 py-5">Hub Activity Details</th>
+                          <th className="px-8 py-5">Stock Flux</th>
+                          <th className="px-8 py-5 text-right">Hub Value Date</th>
+                          <th className="px-8 py-5 text-right">Est. Hub Value</th>
+                          <th className="px-8 py-5">Entity Allocation</th>
+                          <th className="px-8 py-5 text-right">Control</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
                         {filteredHistory.map((entry) => {
                           const project = projects.find(p => p.id === entry.projectId);
                           const vendor = vendors.find(v => v.id === entry.vendorId);
-                          const isLocked = payments.some(p => p.materialBatchId === entry.id);
                           const isLinkedExpense = entry.id.startsWith('sh-exp-');
                           const activeUnitPrice = entry.unitPrice || historyMaterial.costPerUnit;
                           return (
@@ -728,25 +754,21 @@ export const Inventory: React.FC = () => {
                               <td className="px-8 py-5">
                                 <div className="flex items-center gap-2">
                                   {entry.type === 'Purchase' ? (<div className="p-1.5 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg text-emerald-600"><ShoppingCart size={12} /></div>) : entry.type === 'Transfer' ? (<div className="p-1.5 bg-amber-50 dark:bg-amber-900/20 rounded-lg text-amber-600"><ArrowRightLeft size={12} /></div>) : (<div className="p-1.5 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-blue-600"><TrendingDown size={12} /></div>)}
-                                  <span className={`text-[10px] font-black uppercase tracking-widest ${entry.type === 'Purchase' ? 'text-emerald-600' : entry.type === 'Transfer' ? 'text-amber-600' : 'text-blue-600'}`}>{entry.type}</span>
-                                  {isLinkedExpense && <span className="bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-tighter text-slate-400 border border-slate-200 dark:border-slate-600 flex items-center gap-1"><Link size={8} /> Synced</span>}
-                                  {isLocked && <span title="Locked due to payment"><Lock size={10} className="text-amber-500" /></span>}
+                                  <span className={`text-[10px] font-black uppercase tracking-widest ${entry.type === 'Purchase' ? 'text-emerald-600' : entry.type === 'Transfer' ? 'text-amber-600' : 'text-blue-600'}`}>{entry.type === 'Transfer' ? (entry.quantity < 0 ? 'Dispatch Out' : 'Hub Transfer In') : entry.type}</span>
+                                  {isLinkedExpense && <span className="bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-tighter text-slate-400 border border-slate-200 dark:border-slate-600 flex items-center gap-1"><Link size={8} /> Hub Sync</span>}
                                 </div>
                                 <p className="text-[11px] text-slate-700 dark:text-slate-300 font-semibold mt-1">{entry.note}</p>
                               </td>
-                              <td className="px-8 py-5"><span className={`text-sm font-black ${entry.quantity > 0 ? 'text-emerald-600' : 'text-blue-600'}`}>{entry.quantity > 0 ? '+' : ''}{entry.quantity.toLocaleString()} {historyMaterial.unit}</span></td>
+                              <td className="px-8 py-5"><span className={`text-sm font-black ${entry.quantity > 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{entry.quantity > 0 ? '+' : ''}{entry.quantity.toLocaleString()} {historyMaterial.unit}</span></td>
                               <td className="px-8 py-5 text-right font-bold text-slate-600 dark:text-slate-400">
                                 <div className="flex flex-col items-end">
                                   <span className="text-xs">{formatCurrency(activeUnitPrice)}</span>
-                                  {entry.vendorId && (
-                                    <span className="text-[8px] font-black uppercase text-blue-500 flex items-center gap-1"><Link size={8}/> Batch Linked</span>
-                                  )}
                                 </div>
                               </td>
                               <td className="px-8 py-5 text-right font-black text-slate-800 dark:text-slate-200">
                                 {formatCurrency(Math.abs(entry.quantity) * activeUnitPrice)}
                               </td>
-                              <td className="px-8 py-5"><div className="flex flex-col gap-1">{project && <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-tight flex items-center gap-1"><Briefcase size={12} className="text-blue-500"/> {project.name}</span>}{vendor && <span className="text-[11px] font-black text-slate-800 dark:text-slate-200 uppercase tracking-tighter flex items-center gap-1"><Users size={12} className="text-emerald-500"/> {vendor.name}</span>}</div></td>
+                              <td className="px-8 py-5"><div className="flex flex-col gap-1">{project && <span className={`text-[11px] font-bold uppercase tracking-tight flex items-center gap-1 ${project.isGodown ? 'text-slate-900 dark:text-white' : 'text-slate-500'}`}>{project.isGodown ? <Warehouse size={12} className="text-emerald-500"/> : <Briefcase size={12} className="text-blue-500"/>} {project.name}</span>}{vendor && <span className="text-[11px] font-black text-slate-800 dark:text-slate-200 uppercase tracking-tighter flex items-center gap-1"><Users size={12} className="text-emerald-500"/> {vendor.name}</span>}</div></td>
                               <td className="px-8 py-5 text-right"><div className="flex justify-end gap-1"><button onClick={() => { setEditingHistoryEntry({ material: historyMaterial, entry }); setHistoryEditFormData({ quantity: entry.quantity.toString(), unitPrice: activeUnitPrice.toString(), projectId: entry.projectId || '', vendorId: entry.vendorId || '', date: entry.date, note: entry.note || '' }); setShowEditHistoryModal(true); }} className="p-2 text-slate-300 hover:text-blue-600 transition-colors"><Pencil size={16} /></button><button onClick={() => handleDeleteHistoryEntry(historyMaterial, entry.id)} className="p-2 text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={16} /></button></div></td>
                             </tr>
                           ))}
@@ -759,64 +781,58 @@ export const Inventory: React.FC = () => {
         </div>
       )}
 
-      {/* Edit History Modal */}
+      {/* Edit History Item Modal */}
       {showEditHistoryModal && editingHistoryEntry && (
-        <div className="fixed inset-0 z-[160] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
-           <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-xl shadow-2xl overflow-hidden mobile-sheet animate-in slide-in-from-bottom-8 duration-300">
-              <div className="p-8 border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 flex justify-between items-center shrink-0">
-                 <div className="flex items-center gap-3">
-                   <h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">Edit Activity Log</h2>
-                   {isHistoryEntryLocked && (<div className="px-3 py-1 bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-900/50 rounded-lg flex items-center gap-2"><Lock size={12} className="text-amber-600" /><span className="text-[10px] font-black text-amber-700 dark:text-amber-400 uppercase tracking-widest">Financial Lock Active</span></div>)}
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
+           <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-w-lg shadow-2xl overflow-hidden mobile-sheet animate-in slide-in-from-bottom-8 duration-300">
+              <div className="p-8 border-b border-slate-100 dark:border-slate-700 bg-blue-50/30 dark:bg-blue-900/10 flex justify-between items-center shrink-0">
+                 <div className="flex gap-4 items-center">
+                    <div className="p-4 bg-blue-600 text-white rounded-2xl shadow-lg"><Pencil size={24} /></div>
+                    <div><h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">Edit Hub Entry</h2><p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Modify material log details</p></div>
                  </div>
                  <button onClick={() => setShowEditHistoryModal(false)} className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"><X size={32} /></button>
               </div>
               <form onSubmit={handleEditHistorySubmit} className="p-8 space-y-5 overflow-y-auto no-scrollbar max-h-[75vh] pb-safe">
-                 {isHistoryEntryLocked && (<div className="bg-amber-50 dark:bg-amber-900/20 p-4 rounded-2xl border border-amber-100 dark:border-amber-900/30 flex items-start gap-3"><Info size={18} className="text-amber-600 shrink-0 mt-0.5" /><p className="text-[11px] font-bold text-amber-800 dark:text-amber-200 leading-relaxed">This procurement record is locked because settlements (payments) have already been recorded against it.</p></div>)}
-                 {editingHistoryEntry.entry.id.startsWith('sh-exp-') && (<div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-2xl border border-blue-100 dark:border-blue-900/30 flex items-start gap-3"><Link size={18} className="text-blue-600 shrink-0 mt-0.5" /><p className="text-[11px] font-bold text-blue-800 dark:text-blue-200 leading-relaxed"><strong>Ledger Sync Active:</strong> Changes will automatically update the linked Project Expense and Site Budget.</p></div>)}
+                 {isHistoryEntryLocked && (
+                    <div className="bg-amber-50 dark:bg-amber-900/20 p-4 rounded-2xl border border-amber-100 dark:border-amber-900/30 flex items-start gap-3">
+                       <Lock size={18} className="text-amber-600 shrink-0 mt-0.5" />
+                       <p className="text-[11px] font-bold text-amber-800 dark:text-amber-200 leading-relaxed uppercase tracking-tight">
+                         <strong>Bill Locked:</strong> This entry is linked to payments in the Supplier Ledger. Modification might desync financial totals.
+                       </p>
+                    </div>
+                 )}
                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1.5">
-                       <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Quantity (Positive inward, Negative outward)</label>
-                       <input type="number" step="0.01" required disabled={isHistoryEntryLocked} className={`w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white ${isHistoryEntryLocked ? 'opacity-50 cursor-not-allowed' : ''}`} value={historyEditFormData.quantity} onChange={e => setHistoryEditFormData(p => ({ ...p, quantity: e.target.value }))} />
-                    </div>
-                    <div className="space-y-1.5">
-                       <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Unit Price (Rs.)</label>
-                       <input type="number" step="0.01" required disabled={isHistoryEntryLocked || editingHistoryEntry.entry.type === 'Usage'} className={`w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white ${(isHistoryEntryLocked || editingHistoryEntry.entry.type === 'Usage') ? 'opacity-50 cursor-not-allowed' : ''}`} value={historyEditFormData.unitPrice} onChange={e => setHistoryEditFormData(p => ({ ...p, unitPrice: e.target.value }))} />
-                    </div>
+                   <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Quantity</label><input type="number" step="0.01" required className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-black dark:text-white outline-none" value={historyEditFormData.quantity} onChange={e => setHistoryEditFormData(p => ({ ...p, quantity: e.target.value }))} /></div>
+                   <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Unit Price</label><input type="number" step="0.01" required className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-black dark:text-white outline-none" value={historyEditFormData.unitPrice} onChange={e => setHistoryEditFormData(p => ({ ...p, unitPrice: e.target.value }))} /></div>
                  </div>
+                 <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Date</label><input type="date" required className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={historyEditFormData.date} onChange={e => setHistoryEditFormData(p => ({ ...p, date: e.target.value }))} /></div>
                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1.5">
-                       <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Project Site</label>
-                       <select className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white" value={historyEditFormData.projectId} onChange={e => setHistoryEditFormData(p => ({ ...p, projectId: e.target.value }))}><option value="">No Site</option>{projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
-                    </div>
-                    <div className="space-y-1.5">
-                       <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Date</label>
-                       <input type="date" required className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white" value={historyEditFormData.date} onChange={e => setHistoryEditFormData(p => ({ ...p, date: e.target.value }))} />
-                    </div>
+                   <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Allocation Hub</label><select className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={historyEditFormData.projectId} onChange={e => setHistoryEditFormData(p => ({ ...p, projectId: e.target.value }))}><option value="">None</option>{projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
+                   <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Vendor</label><select className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={historyEditFormData.vendorId} onChange={e => setHistoryEditFormData(p => ({ ...p, vendorId: e.target.value }))}><option value="">None</option>{vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}</select></div>
                  </div>
-                 {(editingHistoryEntry.entry.type === 'Purchase' || editingHistoryEntry.entry.vendorId) && (<div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Billing Supplier</label><select className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white" value={historyEditFormData.vendorId} onChange={e => setHistoryEditFormData(p => ({ ...p, vendorId: e.target.value }))}><option value="">No Vendor (Direct Site Use)</option>{vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}</select></div>)}
-                 <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Stock Activity Note</label><textarea rows={2} className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={historyEditFormData.note} onChange={e => setHistoryEditFormData(p => ({ ...p, note: e.target.value }))} /></div>
-                 <div className="flex gap-4 pt-6"><button type="button" onClick={() => setShowEditHistoryModal(false)} className="flex-1 bg-slate-100 dark:bg-slate-700 py-4 rounded-[1.5rem] font-bold text-sm uppercase tracking-widest text-slate-500">Cancel</button><button type="submit" className="flex-1 bg-blue-600 text-white py-4 rounded-[1.5rem] font-black shadow-2xl transition-all active:scale-95 text-sm uppercase tracking-widest">Save Ledger Changes</button></div>
+                 <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Note</label><textarea rows={2} className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={historyEditFormData.note} onChange={e => setHistoryEditFormData(p => ({ ...p, note: e.target.value }))} /></div>
+                 <div className="flex gap-4 pt-6"><button type="button" onClick={() => setShowEditHistoryModal(false)} className="flex-1 bg-slate-100 dark:bg-slate-700 py-4 rounded-[1.5rem] font-bold text-sm uppercase tracking-widest text-slate-500">Discard</button><button type="submit" className="flex-1 bg-blue-600 text-white py-4 rounded-[1.5rem] font-black shadow-2xl active:scale-95 text-sm uppercase tracking-widest">Update Log</button></div>
               </form>
            </div>
         </div>
       )}
 
-      {/* Record Consumption (Usage) Modal */}
+      {/* Consumption / Dispatch Modal */}
       {showUsageModal && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
            <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-xl shadow-2xl overflow-hidden mobile-sheet animate-in slide-in-from-bottom-8 duration-300">
               <div className="p-8 border-b border-slate-100 dark:border-slate-700 bg-blue-50/30 dark:bg-blue-900/20 flex justify-between items-center shrink-0">
                  <div className="flex gap-4 items-center">
                     <div className="p-4 bg-blue-600 text-white rounded-2xl shadow-lg"><TrendingDown size={24} /></div>
-                    <div><h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">Record Consumption</h2><p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Updates Financial Budget & Site Stock</p></div>
+                    <div><h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">Asset Dispatch / Record Use</h2><p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Updates pool levels and localized cost logs</p></div>
                  </div>
                  <button onClick={() => setShowUsageModal(false)} className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"><X size={32} /></button>
               </div>
               <form onSubmit={handleRecordUsage} className="p-8 space-y-5 overflow-y-auto no-scrollbar max-h-[75vh] pb-safe">
-                 <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Project Site Allocation</label><select className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none appearance-none" value={usageData.projectId} onChange={e => setUsageData(p => ({ ...p, projectId: e.target.value, materialId: '', batchId: '' }))} required><option value="">Select Project Site...</option>{projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
+                 <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Operational Allocation (Hub/Site)</label><select className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none appearance-none" value={usageData.projectId} onChange={e => setUsageData(p => ({ ...p, projectId: e.target.value, materialId: '', batchId: '' }))} required><option value="">Select Project Site or Godown Hub...</option>{projects.map(p => <option key={p.id} value={p.id}>{p.name} {p.isGodown ? '(Warehouse)' : '(Active Site)'}</option>)}</select></div>
                  
                  <div className="space-y-1.5">
-                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Material Batch (Material / Vendor / Unit Price / Available)</label>
+                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Material Pool (Category / Hub / Price / Remaining)</label>
                    <select 
                     className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none appearance-none disabled:opacity-50 text-xs" 
                     value={`${usageData.materialId}|${usageData.batchId}`} 
@@ -827,7 +843,7 @@ export const Inventory: React.FC = () => {
                     disabled={!usageData.projectId} 
                     required
                   >
-                    <option value="|">{usageData.projectId ? (relevantMaterialsForSite.length > 0 ? 'Choose stock batch...' : 'No stock found') : 'Select site first...'}</option>
+                    <option value="|">{usageData.projectId ? (relevantMaterialsForSite.length > 0 ? 'Choose stock pool...' : 'No availability in pool') : 'Select hub first...'}</option>
                     {relevantMaterialsForSite.map((batch, idx) => {
                       return (
                         <option 
@@ -841,18 +857,18 @@ export const Inventory: React.FC = () => {
                     })}
                   </select>
                   <div className="flex gap-4 px-1 mt-1">
-                    <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-emerald-500"></div><span className="text-[9px] font-black uppercase text-emerald-600">Local Batch (at this site)</span></div>
-                    <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-blue-500"></div><span className="text-[9px] font-black uppercase text-blue-500">Global Pool (other sites)</span></div>
+                    <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-emerald-500"></div><span className="text-[9px] font-black uppercase text-emerald-600">At Selected Hub</span></div>
+                    <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-blue-500"></div><span className="text-[9px] font-black uppercase text-blue-500">Global Storage Hubs</span></div>
                   </div>
                  </div>
 
                  <div className="grid grid-cols-2 gap-4">
                    <div className="space-y-1.5">
-                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Usage Quantity</label>
+                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Quantity Flux</label>
                      <input type="number" required step="0.01" className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-black dark:text-white outline-none" value={usageData.quantity} onChange={e => setUsageData(p => ({ ...p, quantity: e.target.value }))} placeholder="0.00" />
                    </div>
                    <div className="space-y-1.5">
-                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Consumption Date</label>
+                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Entry Date</label>
                      <input type="date" required className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={usageData.date} onChange={e => setUsageData(p => ({ ...p, date: e.target.value }))} />
                    </div>
                  </div>
@@ -860,17 +876,17 @@ export const Inventory: React.FC = () => {
                  {usageData.materialId && usageData.quantity && (
                     <div className="p-5 bg-blue-50 dark:bg-blue-900/20 rounded-[1.8rem] border-2 border-blue-100 dark:border-blue-800 flex justify-between items-center animate-in fade-in slide-in-from-top-2">
                        <div>
-                          <p className="text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest mb-0.5">Total Consumption Value</p>
+                          <p className="text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest mb-0.5">Estimated Asset Impact</p>
                           <p className="text-2xl font-black text-blue-700 dark:text-blue-300">{formatCurrency(currentTotalValue)}</p>
                        </div>
                        <div className="p-3 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-blue-100 dark:border-slate-700 text-blue-600">
-                          <DollarSign size={24} />
+                          <Scale size={24} />
                        </div>
                     </div>
                  )}
 
-                 <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Usage Note / Area</label><textarea rows={2} className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={usageData.notes} onChange={e => setUsageData(p => ({ ...p, notes: e.target.value }))} placeholder="e.g. Ground floor columns..."></textarea></div>
-                 <div className="flex gap-4 pt-6"><button type="button" onClick={() => setShowUsageModal(false)} className="flex-1 bg-slate-100 dark:bg-slate-700 py-4 rounded-[1.5rem] font-bold text-sm uppercase tracking-widest text-slate-500">Cancel</button><button type="submit" className="flex-1 bg-blue-600 text-white py-4 rounded-[1.5rem] font-black shadow-2xl active:scale-95 text-sm uppercase tracking-widest">Authorize Consumption</button></div>
+                 <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Operational Detail / Gate Pass / Driver</label><textarea rows={2} className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={usageData.notes} onChange={e => setUsageData(p => ({ ...p, notes: e.target.value }))} placeholder="Hub operation details..."></textarea></div>
+                 <div className="flex gap-4 pt-6"><button type="button" onClick={() => setShowUsageModal(false)} className="flex-1 bg-slate-100 dark:bg-slate-700 py-4 rounded-[1.5rem] font-bold text-sm uppercase tracking-widest text-slate-500">Discard</button><button type="submit" className="flex-1 bg-blue-600 text-white py-4 rounded-[1.5rem] font-black shadow-2xl active:scale-95 text-sm uppercase tracking-widest">Authorize Flux</button></div>
               </form>
            </div>
         </div>
@@ -879,15 +895,29 @@ export const Inventory: React.FC = () => {
       {/* Edit Material Modal */}
       {showEditModal && editingMaterial && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
-           <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-w-xl shadow-2xl overflow-hidden mobile-sheet animate-in slide-in-from-bottom-8 duration-300">
+           <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-w-lg shadow-2xl overflow-hidden mobile-sheet animate-in slide-in-from-bottom-8 duration-300">
               <div className="p-8 border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 flex justify-between items-center shrink-0">
-                 <h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">Edit Master Asset</h2>
+                 <div className="flex gap-4 items-center">
+                    <div className="p-4 bg-blue-600 text-white rounded-2xl shadow-lg"><Pencil size={24} /></div>
+                    <div><h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">Edit Asset</h2><p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Update asset meta data</p></div>
+                 </div>
                  <button onClick={() => setShowEditModal(false)} className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"><X size={32} /></button>
               </div>
-              <form onSubmit={handleEditMaterialSubmit} className="p-8 space-y-5 pb-safe">
-                 <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Material Name</label><input type="text" required className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={editFormData.name} onChange={e => setEditFormData(p => ({ ...p, name: e.target.value }))} /></div>
-                 <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Stocking Unit</label><select className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={editFormData.unit} onChange={e => setEditFormData(p => ({ ...p, unit: e.target.value }))}>{stockingUnits.map(u => <option key={u} value={u}>{u}</option>)}</select></div>
-                 <div className="flex gap-4 pt-4"><button type="button" onClick={() => setShowEditModal(false)} className="flex-1 bg-slate-100 dark:bg-slate-700 py-4 rounded-[1.5rem] font-bold text-sm uppercase tracking-widest text-slate-500">Cancel</button><button type="submit" className="flex-1 bg-blue-600 text-white py-4 rounded-[1.5rem] font-black shadow-2xl transition-all active:scale-95 text-sm uppercase tracking-widest">Update Asset</button></div>
+              <form onSubmit={handleEditMaterialSubmit} className="p-8 space-y-5">
+                 <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Material Name</label>
+                    <input type="text" required className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={editFormData.name} onChange={e => setEditFormData(p => ({ ...p, name: e.target.value }))} />
+                 </div>
+                 <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Stocking Unit</label>
+                    <select className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none appearance-none" value={editFormData.unit} onChange={e => setEditFormData(p => ({ ...p, unit: e.target.value }))}>
+                       {stockingUnits.map(u => <option key={u} value={u}>{u}</option>)}
+                    </select>
+                 </div>
+                 <div className="flex gap-4 pt-6">
+                    <button type="button" onClick={() => setShowEditModal(false)} className="flex-1 bg-slate-100 dark:bg-slate-700 py-4 rounded-[1.5rem] font-bold text-sm uppercase tracking-widest text-slate-500">Discard</button>
+                    <button type="submit" className="flex-1 bg-blue-600 text-white py-4 rounded-[1.5rem] font-black shadow-2xl active:scale-95 text-sm uppercase tracking-widest">Authorize Update</button>
+                 </div>
               </form>
            </div>
         </div>

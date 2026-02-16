@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { 
   User, 
@@ -23,7 +22,8 @@ import {
   Activity,
   Database,
   Code2,
-  Terminal
+  Terminal,
+  LayoutGrid
 } from 'lucide-react';
 import { useApp } from '../AppContext';
 

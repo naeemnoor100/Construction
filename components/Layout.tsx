@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { 
   LayoutDashboard, 
@@ -19,7 +18,8 @@ import {
   Undo2,
   Redo2,
   Check,
-  Bot
+  Bot,
+  FileText
 } from 'lucide-react';
 import { useApp } from '../AppContext';
 import { SyncCenter } from './SyncCenter';
@@ -61,6 +61,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={18} /> },
     { id: 'projects', label: 'Projects', icon: <Briefcase size={18} /> },
+    { id: 'invoices', label: 'Client Invoices', icon: <FileText size={18} /> },
     { id: 'income', label: 'Incomes', icon: <ArrowUpCircle size={18} /> },
     { id: 'vendors', label: 'Suppliers', icon: <Users size={18} /> },
     { id: 'materials', label: 'Inventory', icon: <Package size={18} /> },
