@@ -8,9 +8,8 @@ declare var process: any;
 export default defineConfig({
   plugins: [react()],
   define: {
-    // Shim process.env.API_KEY to be available in the browser
-    // This allows the app to use the key provided by Vercel environment variables
-    'process.env.API_KEY': JSON.stringify(process.env.API_KEY),
+    // Explicitly shim process.env for browser compatibility
+    'process.env.API_KEY': JSON.stringify(process.env.API_KEY || ''),
   },
   resolve: {
     // CRITICAL: This prevents the "useRef" null error by forcing 
@@ -23,5 +22,7 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     chunkSizeWarningLimit: 2000,
+    // Ensure clean builds to force Vercel updates
+    emptyOutDir: true,
   }
 });

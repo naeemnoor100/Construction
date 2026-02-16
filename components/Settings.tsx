@@ -118,7 +118,7 @@ CREATE TABLE expenses (
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
-    alert("Schema copied to clipboard!");
+    alert("Database schema copied to clipboard!");
   };
 
   return (
@@ -203,19 +203,19 @@ CREATE TABLE expenses (
                   </div>
                   <div className="p-5 bg-slate-50 dark:bg-slate-900/50 rounded-2xl border border-slate-200 dark:border-slate-700">
                     <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
-                      This application is designed to connect to a <strong>MySQL Database</strong> through a specialized Backend API (Node.js/Express, PHP/Laravel, or Python/FastAPI). The frontend communicates with the server via RESTful endpoints.
+                      This application communicates with a <strong>MySQL/PostgreSQL Database</strong> through a RESTful API Backend. The architecture follows modern standards for secure data persistence.
                     </p>
                     <ol className="mt-4 space-y-2 text-xs text-slate-600 dark:text-slate-400 list-decimal list-inside">
-                      <li>Set up a local or hosted MySQL database server.</li>
-                      <li>Run the SQL script provided below to initialize tables and relationships.</li>
-                      <li>Create a backend bridge using libraries like <code>mysql2</code> or an ORM like Sequelize.</li>
-                      <li>Update the <code>API_BASE_URL</code> in your AppContext to point to your deployed backend.</li>
+                      <li>Initialize a hosted SQL environment (e.g., AWS RDS, Vercel Postgres, or DigitalOcean).</li>
+                      <li>Execute the SQL script provided below to establish schema, indexing, and foreign keys.</li>
+                      <li>Deploy a Backend Bridge (Node.js/Express) using drivers like <code>mysql2</code> or <code>pg</code>.</li>
+                      <li>Update the <code>API_BASE_URL</code> in your configuration to point to your live backend.</li>
                     </ol>
                   </div>
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Database SQL Schema (Copy Required)</label>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Required Database Schema (SQL)</label>
                   <pre className="w-full p-4 bg-slate-900 text-blue-400 rounded-2xl text-[10px] font-mono overflow-x-auto border border-slate-700">
                     {sqlSchema}
                   </pre>
@@ -236,8 +236,8 @@ CREATE TABLE expenses (
                            <Scale size={20} />
                         </div>
                         <div>
-                           <h3 className="font-bold text-slate-900 dark:text-white text-sm uppercase tracking-tight">Decimal Quantity Control</h3>
-                           <p className="text-[10px] text-slate-500 font-bold uppercase">Inventory & Stock Input Format</p>
+                           <h3 className="font-bold text-slate-900 dark:text-white text-sm uppercase tracking-tight">Decimal Quantity Support</h3>
+                           <p className="text-[10px] text-slate-500 font-bold uppercase">Inventory & Stock Tracking</p>
                         </div>
                      </div>
                      <button 
@@ -248,7 +248,7 @@ CREATE TABLE expenses (
                      </button>
                    </div>
                    <p className="text-xs text-slate-600 dark:text-slate-400 italic">
-                      If disabled, all inventory inputs across the app will be restricted to whole numbers (integers) only.
+                      When enabled, inventory items can be recorded with decimal places (e.g., 1.5 Tons). If disabled, inputs are restricted to whole numbers.
                    </p>
                 </div>
 
