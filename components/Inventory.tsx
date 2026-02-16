@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { 
   Package, 
   ShoppingCart, 
@@ -91,7 +91,6 @@ export const Inventory: React.FC = () => {
   const [bulkGlobalProject, setBulkGlobalProject] = useState('');
   const [bulkDate, setBulkDate] = useState(new Date().toISOString().split('T')[0]);
 
-  // Keep historyMaterial synced with the master list after any global state updates
   useEffect(() => {
     if (historyMaterial) {
       const latest = materials.find(m => m.id === historyMaterial.id);
@@ -101,7 +100,7 @@ export const Inventory: React.FC = () => {
         setHistoryMaterial(null);
       }
     }
-  }, [materials]);
+  }, [materials, historyMaterial]);
 
   const isHistoryEntryLocked = useMemo(() => {
     if (!editingHistoryEntry) return false;
@@ -407,6 +406,26 @@ export const Inventory: React.FC = () => {
     }
     setShowEditHistoryModal(false);
     setEditingHistoryEntry(null);
+  };
+
+  const triggerHistoryEdit = (entry: StockHistoryEntry) => {
+    if (!historyMaterial) return;
+    const activeUnitPrice = entry.unitPrice || historyMaterial.costPerUnit;
+    setEditingHistoryEntry({ material: historyMaterial, entry }); 
+    setHistoryEditFormData({ 
+      quantity: entry.quantity.toString(), 
+      unitPrice: activeUnitPrice.toString(), 
+      projectId: entry.projectId || '', 
+      vendorId: entry.vendorId || '', 
+      date: entry.date, 
+      note: entry.note || '' 
+    }); 
+    setShowEditHistoryModal(true);
+  };
+
+  const handleUsageSelection = (val: string) => {
+    const [mId, bId] = val.split('|'); 
+    setUsageData(p => ({ ...p, materialId: mId, batchId: bId }));
   };
 
   return (
@@ -747,7 +766,7 @@ export const Inventory: React.FC = () => {
                           const project = projects.find(p => p.id === entry.projectId);
                           const vendor = vendors.find(v => v.id === entry.vendorId);
                           const isLinkedExpense = entry.id.startsWith('sh-exp-');
-                          const activeUnitPrice = entry.unitPrice || historyMaterial.costPerUnit;
+                          const activeUnitPrice = entry.unitPrice || historyMaterial!.costPerUnit;
                           return (
                             <tr key={entry.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/50 transition-colors group">
                               <td className="px-8 py-5 text-xs font-bold text-slate-500 dark:text-slate-400">{new Date(entry.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
@@ -759,7 +778,7 @@ export const Inventory: React.FC = () => {
                                 </div>
                                 <p className="text-[11px] text-slate-700 dark:text-slate-300 font-semibold mt-1">{entry.note}</p>
                               </td>
-                              <td className="px-8 py-5"><span className={`text-sm font-black ${entry.quantity > 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{entry.quantity > 0 ? '+' : ''}{entry.quantity.toLocaleString()} {historyMaterial.unit}</span></td>
+                              <td className="px-8 py-5"><span className={`text-sm font-black ${entry.quantity > 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{entry.quantity > 0 ? '+' : ''}{entry.quantity.toLocaleString()} {historyMaterial!.unit}</span></td>
                               <td className="px-8 py-5 text-right font-bold text-slate-600 dark:text-slate-400">
                                 <div className="flex flex-col items-end">
                                   <span className="text-xs">{formatCurrency(activeUnitPrice)}</span>
@@ -769,9 +788,10 @@ export const Inventory: React.FC = () => {
                                 {formatCurrency(Math.abs(entry.quantity) * activeUnitPrice)}
                               </td>
                               <td className="px-8 py-5"><div className="flex flex-col gap-1">{project && <span className={`text-[11px] font-bold uppercase tracking-tight flex items-center gap-1 ${project.isGodown ? 'text-slate-900 dark:text-white' : 'text-slate-500'}`}>{project.isGodown ? <Warehouse size={12} className="text-emerald-500"/> : <Briefcase size={12} className="text-blue-500"/>} {project.name}</span>}{vendor && <span className="text-[11px] font-black text-slate-800 dark:text-slate-200 uppercase tracking-tighter flex items-center gap-1"><Users size={12} className="text-emerald-500"/> {vendor.name}</span>}</div></td>
-                              <td className="px-8 py-5 text-right"><div className="flex justify-end gap-1"><button onClick={() => { setEditingHistoryEntry({ material: historyMaterial, entry }); setHistoryEditFormData({ quantity: entry.quantity.toString(), unitPrice: activeUnitPrice.toString(), projectId: entry.projectId || '', vendorId: entry.vendorId || '', date: entry.date, note: entry.note || '' }); setShowEditHistoryModal(true); }} className="p-2 text-slate-300 hover:text-blue-600 transition-colors"><Pencil size={16} /></button><button onClick={() => handleDeleteHistoryEntry(historyMaterial, entry.id)} className="p-2 text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={16} /></button></div></td>
+                              <td className="px-8 py-5 text-right"><div className="flex justify-end gap-1"><button onClick={() => triggerHistoryEdit(entry)} className="p-2 text-slate-300 hover:text-blue-600 transition-colors"><Pencil size={16} /></button><button onClick={() => handleDeleteHistoryEntry(historyMaterial!, entry.id)} className="p-2 text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={16} /></button></div></td>
                             </tr>
-                          ))}
+                          );
+                        })}
                       </tbody>
                     </table>
                  </div>
@@ -836,16 +856,12 @@ export const Inventory: React.FC = () => {
                    <select 
                     className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none appearance-none disabled:opacity-50 text-xs" 
                     value={`${usageData.materialId}|${usageData.batchId}`} 
-                    onChange={e => { 
-                      const [mId, bId] = e.target.value.split('|'); 
-                      setUsageData(p => ({ ...p, materialId: mId, batchId: bId })); 
-                    }} 
+                    onChange={e => handleUsageSelection(e.target.value)} 
                     disabled={!usageData.projectId} 
                     required
                   >
                     <option value="|">{usageData.projectId ? (relevantMaterialsForSite.length > 0 ? 'Choose stock pool...' : 'No availability in pool') : 'Select hub first...'}</option>
-                    {relevantMaterialsForSite.map((batch, idx) => {
-                      return (
+                    {relevantMaterialsForSite.map((batch, idx) => (
                         <option 
                           key={`${batch.id}-${batch.batchId}-${idx}`} 
                           value={`${batch.id}|${batch.batchId}`}
@@ -853,8 +869,7 @@ export const Inventory: React.FC = () => {
                         >
                           {batch.name} / {batch.vendorName} / {formatCurrency(batch.unitPrice)} / {batch.available.toLocaleString()} {batch.unit}
                         </option>
-                      );
-                    })}
+                    ))}
                   </select>
                   <div className="flex gap-4 px-1 mt-1">
                     <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-emerald-500"></div><span className="text-[9px] font-black uppercase text-emerald-600">At Selected Hub</span></div>
@@ -885,7 +900,7 @@ export const Inventory: React.FC = () => {
                     </div>
                  )}
 
-                 <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Operational Detail / Gate Pass / Driver</label><textarea rows={2} className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={usageData.notes} onChange={e => setUsageData(p => ({ ...p, notes: e.target.value }))} placeholder="Hub operation details..."></textarea></div>
+                 <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Operational Detail / Gate Pass / Driver</label><textarea rows={2} className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={usageData.notes} onChange={e => setUsageData(p => ({ ...p, notes: e.target.value }))} placeholder="Hub operation details..." /></div>
                  <div className="flex gap-4 pt-6"><button type="button" onClick={() => setShowUsageModal(false)} className="flex-1 bg-slate-100 dark:bg-slate-700 py-4 rounded-[1.5rem] font-bold text-sm uppercase tracking-widest text-slate-500">Discard</button><button type="submit" className="flex-1 bg-blue-600 text-white py-4 rounded-[1.5rem] font-black shadow-2xl active:scale-95 text-sm uppercase tracking-widest">Authorize Flux</button></div>
               </form>
            </div>
