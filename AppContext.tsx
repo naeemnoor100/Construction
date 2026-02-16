@@ -5,6 +5,7 @@ import { INITIAL_STATE } from './constants';
 interface AppContextType extends AppState {
   updateUser: (u: User) => void;
   setTheme: (theme: 'light' | 'dark') => void;
+  setAllowDecimalStock: (val: boolean) => void;
   addProject: (p: Project) => Promise<void>;
   updateProject: (p: Project) => Promise<void>;
   deleteProject: (id: string) => Promise<void>;
@@ -69,7 +70,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           siteStatuses: parsed.siteStatuses || INITIAL_STATE.siteStatuses,
           tradeCategories: parsed.tradeCategories || INITIAL_STATE.tradeCategories,
           stockingUnits: parsed.stockingUnits || INITIAL_STATE.stockingUnits,
-          invoices: parsed.invoices || []
+          invoices: parsed.invoices || [],
+          allowDecimalStock: parsed.allowDecimalStock ?? true
         }));
       }
       setSyncError(false);
@@ -110,6 +112,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const updateUser = (u: User) => setState(prev => ({ ...prev, currentUser: u }));
   const setTheme = (theme: 'light' | 'dark') => setState(prev => ({ ...prev, theme }));
+  const setAllowDecimalStock = (val: boolean) => setState(prev => ({ ...prev, allowDecimalStock: val }));
 
   const addProject = async (p: Project) => {
     await apiRequest('POST', '/projects', p);
@@ -432,7 +435,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const updateInvoice = async (inv: Invoice) => {
     await apiRequest('PUT', `/invoices/${inv.id}`, inv);
-    setState(prev => ({ ...prev, invoices: prev.invoices.map(i => i.id === inv.id ? inv : i) }));
+    setState(prev => ({ ...prev, invoices: prev.invoices.map(i => i.id === inv.id ? i : i) }));
   };
 
   const deleteInvoice = async (id: string) => {
@@ -457,7 +460,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const value = useMemo(() => ({
     ...state,
-    updateUser, setTheme,
+    updateUser, setTheme, setAllowDecimalStock,
     addProject, updateProject, deleteProject,
     addVendor, updateVendor, deleteVendor,
     addMaterial, updateMaterial, deleteMaterial,

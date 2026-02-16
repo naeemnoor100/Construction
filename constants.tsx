@@ -33,5 +33,6 @@ export const INITIAL_STATE: AppState = {
   invoices: [],
   tradeCategories: ['Material', 'Labor', 'Equipment', 'Overhead', 'Permit', 'Fuel', 'Security'],
   stockingUnits: ['Bag', 'Ton', 'KG', 'Piece', 'Cubic Meter', 'Litre', 'Feet'],
-  siteStatuses: ['Upcoming', 'Active', 'On Hold', 'Completed', 'Cancelled']
+  siteStatuses: ['Upcoming', 'Active', 'On Hold', 'Completed', 'Cancelled'],
+  allowDecimalStock: true
 };

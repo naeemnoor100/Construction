@@ -8,7 +8,7 @@ import { Expense, PaymentMethod, Material, Payment } from '../types';
 const formatCurrency = (val: number) => `Rs. ${val.toLocaleString('en-IN')}`;
 
 export const ExpenseTracker: React.FC = () => {
-  const { expenses, projects, vendors, materials, tradeCategories, addExpense, updateExpense, deleteExpense, addPayment, payments } = useApp();
+  const { expenses, projects, vendors, materials, tradeCategories, addExpense, updateExpense, deleteExpense, addPayment, payments, allowDecimalStock } = useApp();
   const [showModal, setShowModal] = useState(false);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
   
@@ -390,7 +390,7 @@ export const ExpenseTracker: React.FC = () => {
                              <label className="text-[9px] font-black text-slate-400 uppercase px-1">Update Quantity ({selectedMaterial?.unit})</label>
                              <input 
                               type="number" 
-                              step="0.01" 
+                              step={allowDecimalStock ? "0.01" : "1"} 
                               className="w-full px-5 py-3 bg-white dark:bg-slate-900 border-2 border-blue-500 dark:border-blue-400 rounded-xl font-black outline-none focus:ring-4 focus:ring-blue-500/10" 
                               placeholder="0.00"
                               value={formData.materialQuantity}

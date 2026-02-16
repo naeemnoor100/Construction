@@ -60,7 +60,7 @@ interface BulkRow {
 }
 
 export const Inventory: React.FC = () => {
-  const { materials, projects, vendors, stockingUnits, payments, expenses, updateMaterial, addMaterial, deleteMaterial, addExpense, deleteExpense, updateExpense, updateVendor } = useApp();
+  const { materials, projects, vendors, stockingUnits, payments, expenses, updateMaterial, addMaterial, deleteMaterial, addExpense, deleteExpense, updateExpense, updateVendor, allowDecimalStock } = useApp();
   const [searchTerm, setSearchTerm] = useState('');
   const [projectFilter, setProjectFilter] = useState('All');
   const [vendorFilter, setVendorFilter] = useState('All');
@@ -556,7 +556,7 @@ export const Inventory: React.FC = () => {
                        </div>
                        <div className="md:col-span-2 space-y-1">
                           <label className="text-[8px] font-black text-slate-400 uppercase px-1">Quantity</label>
-                          <input type="number" step="0.01" className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 rounded-lg text-xs font-bold dark:text-white" value={row.quantity} onChange={e => updateBulkRow(row.id, 'quantity', e.target.value)} placeholder="0.00" />
+                          <input type="number" step={allowDecimalStock ? "0.01" : "1"} className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 rounded-lg text-xs font-bold dark:text-white" value={row.quantity} onChange={e => updateBulkRow(row.id, 'quantity', e.target.value)} placeholder="0.00" />
                        </div>
                        <div className="md:col-span-2 space-y-1">
                           <label className="text-[8px] font-black text-slate-400 uppercase px-1">Unit Price</label>
@@ -672,7 +672,7 @@ export const Inventory: React.FC = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                    <div className="space-y-1.5">
                       <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Qty Received</label>
-                      <input type="number" required step="0.01" className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-black dark:text-white outline-none" value={procureData.quantity} onChange={e => setProcureData(p => ({ ...p, quantity: e.target.value }))} placeholder="0.00" />
+                      <input type="number" required step={allowDecimalStock ? "0.01" : "1"} className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-black dark:text-white outline-none" value={procureData.quantity} onChange={e => setProcureData(p => ({ ...p, quantity: e.target.value }))} placeholder="0.00" />
                    </div>
                    <div className="space-y-1.5">
                       <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Base Price (Rs.)</label>
@@ -784,7 +784,7 @@ export const Inventory: React.FC = () => {
       {/* Edit History Item Modal */}
       {showEditHistoryModal && editingHistoryEntry && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
-           <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-w-lg shadow-2xl overflow-hidden mobile-sheet animate-in slide-in-from-bottom-8 duration-300">
+           <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-lg shadow-2xl overflow-hidden mobile-sheet animate-in slide-in-from-bottom-8 duration-300">
               <div className="p-8 border-b border-slate-100 dark:border-slate-700 bg-blue-50/30 dark:bg-blue-900/10 flex justify-between items-center shrink-0">
                  <div className="flex gap-4 items-center">
                     <div className="p-4 bg-blue-600 text-white rounded-2xl shadow-lg"><Pencil size={24} /></div>
@@ -802,7 +802,7 @@ export const Inventory: React.FC = () => {
                     </div>
                  )}
                  <div className="grid grid-cols-2 gap-4">
-                   <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Quantity</label><input type="number" step="0.01" required className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-black dark:text-white outline-none" value={historyEditFormData.quantity} onChange={e => setHistoryEditFormData(p => ({ ...p, quantity: e.target.value }))} /></div>
+                   <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Quantity</label><input type="number" step={allowDecimalStock ? "0.01" : "1"} required className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-black dark:text-white outline-none" value={historyEditFormData.quantity} onChange={e => setHistoryEditFormData(p => ({ ...p, quantity: e.target.value }))} /></div>
                    <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Unit Price</label><input type="number" step="0.01" required className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-black dark:text-white outline-none" value={historyEditFormData.unitPrice} onChange={e => setHistoryEditFormData(p => ({ ...p, unitPrice: e.target.value }))} /></div>
                  </div>
                  <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Date</label><input type="date" required className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" value={historyEditFormData.date} onChange={e => setHistoryEditFormData(p => ({ ...p, date: e.target.value }))} /></div>
@@ -865,7 +865,7 @@ export const Inventory: React.FC = () => {
                  <div className="grid grid-cols-2 gap-4">
                    <div className="space-y-1.5">
                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Quantity Flux</label>
-                     <input type="number" required step="0.01" className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-black dark:text-white outline-none" value={usageData.quantity} onChange={e => setUsageData(p => ({ ...p, quantity: e.target.value }))} placeholder="0.00" />
+                     <input type="number" required step={allowDecimalStock ? "0.01" : "1"} className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-black dark:text-white outline-none" value={usageData.quantity} onChange={e => setUsageData(p => ({ ...p, quantity: e.target.value }))} placeholder="0.00" />
                    </div>
                    <div className="space-y-1.5">
                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Entry Date</label>
@@ -895,7 +895,7 @@ export const Inventory: React.FC = () => {
       {/* Edit Material Modal */}
       {showEditModal && editingMaterial && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
-           <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-w-lg shadow-2xl overflow-hidden mobile-sheet animate-in slide-in-from-bottom-8 duration-300">
+           <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-lg shadow-2xl overflow-hidden mobile-sheet animate-in slide-in-from-bottom-8 duration-300">
               <div className="p-8 border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 flex justify-between items-center shrink-0">
                  <div className="flex gap-4 items-center">
                     <div className="p-4 bg-blue-600 text-white rounded-2xl shadow-lg"><Pencil size={24} /></div>

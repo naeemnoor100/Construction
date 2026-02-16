@@ -23,7 +23,9 @@ import {
   Database,
   Code2,
   Terminal,
-  LayoutGrid
+  LayoutGrid,
+  Scale,
+  Copy
 } from 'lucide-react';
 import { useApp } from '../AppContext';
 
@@ -32,7 +34,8 @@ export const Settings: React.FC = () => {
     currentUser, updateUser, syncId, theme, setTheme, 
     tradeCategories, addTradeCategory, removeTradeCategory,
     stockingUnits, addStockingUnit, removeStockingUnit,
-    siteStatuses, addSiteStatus, removeSiteStatus
+    siteStatuses, addSiteStatus, removeSiteStatus,
+    allowDecimalStock, setAllowDecimalStock
   } = useApp();
   
   const [activeSection, setActiveSection] = useState<'profile' | 'company' | 'system' | 'master-lists' | 'database'>('profile');
@@ -113,6 +116,11 @@ CREATE TABLE expenses (
     }, 800);
   };
 
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    alert("Schema copied to clipboard!");
+  };
+
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       <div className="flex justify-between items-end">
@@ -191,27 +199,27 @@ CREATE TABLE expenses (
                 <div className="space-y-4">
                   <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400">
                     <Code2 size={20} />
-                    <h4 className="font-bold text-sm uppercase tracking-tight">Connection Architecture (اردو میں تفصیل)</h4>
+                    <h4 className="font-bold text-sm uppercase tracking-tight">Connection Architecture</h4>
                   </div>
                   <div className="p-5 bg-slate-50 dark:bg-slate-900/50 rounded-2xl border border-slate-200 dark:border-slate-700">
                     <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
-                      یہ ایپ ایک <strong>Backend API</strong> (Node.js یا PHP) کے ذریعے MySQL ڈیٹا بیس سے جڑے گی۔ فرنٹ اینڈ ڈیٹا مانگے گا، اور سرور ڈیٹا بیس سے لا کر دے گا۔
+                      This application is designed to connect to a <strong>MySQL Database</strong> through a specialized Backend API (Node.js/Express, PHP/Laravel, or Python/FastAPI). The frontend communicates with the server via RESTful endpoints.
                     </p>
                     <ol className="mt-4 space-y-2 text-xs text-slate-600 dark:text-slate-400 list-decimal list-inside">
-                      <li>MySQL ڈیٹا بیس سرور سیٹ اپ کریں۔</li>
-                      <li>نیچے دیا گیا SQL اسکریپٹ رن کریں تاکہ ٹیبلز بن سکیں۔</li>
-                      <li>Node.js سرور میں <code>mysql2</code> لائبریری استعمال کر کے کنکشن بنائیں۔</li>
-                      <li>App Context میں <code>API_BASE_URL</code> کو اپنے سرور کے لنک سے بدل دیں۔</li>
+                      <li>Set up a local or hosted MySQL database server.</li>
+                      <li>Run the SQL script provided below to initialize tables and relationships.</li>
+                      <li>Create a backend bridge using libraries like <code>mysql2</code> or an ORM like Sequelize.</li>
+                      <li>Update the <code>API_BASE_URL</code> in your AppContext to point to your deployed backend.</li>
                     </ol>
                   </div>
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Database SQL Schema (کاپی کریں)</label>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Database SQL Schema (Copy Required)</label>
                   <pre className="w-full p-4 bg-slate-900 text-blue-400 rounded-2xl text-[10px] font-mono overflow-x-auto border border-slate-700">
                     {sqlSchema}
                   </pre>
-                  <button onClick={() => navigator.clipboard.writeText(sqlSchema)} className="flex items-center gap-2 text-[10px] font-bold text-blue-600 hover:underline uppercase tracking-widest mt-2">
+                  <button onClick={() => copyToClipboard(sqlSchema)} className="flex items-center gap-2 text-[10px] font-bold text-blue-600 hover:underline uppercase tracking-widest mt-2">
                     <Copy size={12} /> Copy Schema to Clipboard
                   </button>
                 </div>
@@ -220,6 +228,30 @@ CREATE TABLE expenses (
 
             {activeSection === 'master-lists' && (
               <div className="p-8 space-y-12">
+                {/* Global Quantity Settings */}
+                <div className="space-y-4 p-6 bg-blue-50/50 dark:bg-blue-900/10 rounded-[2rem] border border-blue-100 dark:border-blue-900/20">
+                   <div className="flex items-center justify-between">
+                     <div className="flex items-center gap-3">
+                        <div className="p-3 bg-blue-600 text-white rounded-2xl">
+                           <Scale size={20} />
+                        </div>
+                        <div>
+                           <h3 className="font-bold text-slate-900 dark:text-white text-sm uppercase tracking-tight">Decimal Quantity Control</h3>
+                           <p className="text-[10px] text-slate-500 font-bold uppercase">Inventory & Stock Input Format</p>
+                        </div>
+                     </div>
+                     <button 
+                      onClick={() => setAllowDecimalStock(!allowDecimalStock)}
+                      className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors focus:outline-none ${allowDecimalStock ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-600'}`}
+                     >
+                       <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${allowDecimalStock ? 'translate-x-6' : 'translate-x-1'}`} />
+                     </button>
+                   </div>
+                   <p className="text-xs text-slate-600 dark:text-slate-400 italic">
+                      If disabled, all inventory inputs across the app will be restricted to whole numbers (integers) only.
+                   </p>
+                </div>
+
                 {/* Trade Categories */}
                 <div className="space-y-4">
                   <h3 className="font-bold text-slate-900 dark:text-white flex items-center gap-2 text-sm uppercase tracking-widest">
@@ -229,7 +261,7 @@ CREATE TABLE expenses (
                     <input 
                       type="text" 
                       placeholder="New category..." 
-                      className="flex-1 px-4 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold outline-none"
+                      className="flex-1 px-4 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold outline-none dark:text-white"
                       value={newTradeCat}
                       onChange={e => setNewTradeCat(e.target.value)}
                       onKeyPress={e => e.key === 'Enter' && newTradeCat && (addTradeCategory(newTradeCat), setNewTradeCat(''))}
@@ -254,7 +286,7 @@ CREATE TABLE expenses (
                     <input 
                       type="text" 
                       placeholder="New unit (e.g. Bag, Ton)..." 
-                      className="flex-1 px-4 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold outline-none"
+                      className="flex-1 px-4 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold outline-none dark:text-white"
                       value={newStockUnit}
                       onChange={e => setNewStockUnit(e.target.value)}
                       onKeyPress={e => e.key === 'Enter' && newStockUnit && (addStockingUnit(newStockUnit), setNewStockUnit(''))}
@@ -279,7 +311,7 @@ CREATE TABLE expenses (
                     <input 
                       type="text" 
                       placeholder="New status..." 
-                      className="flex-1 px-4 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold outline-none"
+                      className="flex-1 px-4 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold outline-none dark:text-white"
                       value={newSiteStatus}
                       onChange={e => setNewSiteStatus(e.target.value)}
                       onKeyPress={e => e.key === 'Enter' && newSiteStatus && (addSiteStatus(newSiteStatus), setNewSiteStatus(''))}
@@ -317,7 +349,3 @@ CREATE TABLE expenses (
     </div>
   );
 };
-
-const Copy: React.FC<{ size?: number }> = ({ size = 16 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
-);

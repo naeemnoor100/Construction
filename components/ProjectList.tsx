@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Plus, 
@@ -60,7 +59,7 @@ export const ProjectList: React.FC = () => {
     addExpense, updateExpense, deleteExpense,
     addIncome, updateIncome, deleteIncome,
     addInvoice, updateInvoice, deleteInvoice,
-    addMaterial, updateMaterial, addPayment, payments
+    addMaterial, updateMaterial, addPayment, payments, allowDecimalStock
   } = useApp();
   
   const [filter, setFilter] = useState<string>('All');
@@ -766,7 +765,7 @@ export const ProjectList: React.FC = () => {
       {/* Record Arrival Modal */}
       {showRecordArrivalModal && viewingProject && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
-           <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-w-lg shadow-2xl overflow-hidden animate-in slide-in-from-bottom-8 duration-300">
+           <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-lg shadow-2xl overflow-hidden animate-in slide-in-from-bottom-8 duration-300">
               <div className="p-8 border-b border-slate-100 dark:border-slate-700 bg-amber-50/30 dark:bg-amber-900/10 flex justify-between items-center">
                  <div className="flex gap-4 items-center">
                     <div className="p-3 bg-amber-600 text-white rounded-2xl shadow-lg"><ShoppingCart size={24} /></div>
@@ -788,8 +787,8 @@ export const ProjectList: React.FC = () => {
                  </div>
                  {arrivalFormData.materialId === 'new' && (
                     <div className="grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2">
-                       <input type="text" placeholder="Material Name" className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 rounded-2xl font-bold" value={arrivalFormData.newMaterialName} onChange={e => setArrivalFormData(p => ({ ...p, newMaterialName: e.target.value }))} required />
-                       <select className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 rounded-2xl font-bold" value={arrivalFormData.unit} onChange={e => setArrivalFormData(p => ({ ...p, unit: e.target.value }))}>
+                       <input type="text" placeholder="Material Name" className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 rounded-2xl font-bold dark:text-white" value={arrivalFormData.newMaterialName} onChange={e => setArrivalFormData(p => ({ ...p, newMaterialName: e.target.value }))} required />
+                       <select className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 rounded-2xl font-bold dark:text-white" value={arrivalFormData.unit} onChange={e => setArrivalFormData(p => ({ ...p, unit: e.target.value }))}>
                           {stockingUnits.map(u => <option key={u} value={u}>{u}</option>)}
                        </select>
                     </div>
@@ -802,10 +801,10 @@ export const ProjectList: React.FC = () => {
                     </select>
                  </div>
                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1.5"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Qty Arrived</label><input type="number" step="0.01" className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-black text-lg" value={arrivalFormData.quantity} onChange={e => setArrivalFormData(p => ({ ...p, quantity: e.target.value }))} required /></div>
-                    <div className="space-y-1.5"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Unit Price (Rs.)</label><input type="number" step="0.01" className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-black text-lg" value={arrivalFormData.costPerUnit} onChange={e => setArrivalFormData(p => ({ ...p, costPerUnit: e.target.value }))} required /></div>
+                    <div className="space-y-1.5"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Qty Arrived</label><input type="number" step={allowDecimalStock ? "0.01" : "1"} className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-black text-lg dark:text-white" value={arrivalFormData.quantity} onChange={e => setArrivalFormData(p => ({ ...p, quantity: e.target.value }))} required /></div>
+                    <div className="space-y-1.5"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Unit Price (Rs.)</label><input type="number" step="0.01" className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-black text-lg dark:text-white" value={arrivalFormData.costPerUnit} onChange={e => setArrivalFormData(p => ({ ...p, costPerUnit: e.target.value }))} required /></div>
                  </div>
-                 <div className="space-y-1.5"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Arrival Date</label><input type="date" className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold mb-2" value={arrivalFormData.date} onChange={e => setArrivalFormData(p => ({ ...p, date: e.target.value }))} required /><textarea className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold" rows={2} placeholder="Gate pass, vehicle details..." value={arrivalFormData.note} onChange={e => setArrivalFormData(p => ({ ...p, note: e.target.value }))} /></div>
+                 <div className="space-y-1.5"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Arrival Date</label><input type="date" className="w-full px-5 py-4 bg-slate-50 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white mb-2" value={arrivalFormData.date} onChange={e => setArrivalFormData(p => ({ ...p, date: e.target.value }))} required /><textarea className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white" rows={2} placeholder="Gate pass, vehicle details..." value={arrivalFormData.note} onChange={e => setArrivalFormData(p => ({ ...p, note: e.target.value }))} /></div>
                  <button type="submit" className="w-full bg-amber-600 text-white py-4 rounded-3xl font-black uppercase tracking-widest shadow-xl shadow-amber-100 dark:shadow-none active:scale-95 transition-all text-sm mt-4">Confirm Stock Reception</button>
               </form>
            </div>
@@ -852,7 +851,7 @@ export const ProjectList: React.FC = () => {
                    </div>
                    <div className="space-y-1.5"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Milestone Description</label><textarea required rows={2} className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white outline-none" placeholder="e.g. 1st Floor Slab casting complete..." value={incomeFormData.description} onChange={e => setIncomeFormData(p => ({ ...p, description: e.target.value }))} /></div>
                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-1.5"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Amount (Rs.)</label><input type="number" required step="0.01" className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 rounded-2xl font-black text-lg dark:text-white" value={incomeFormData.amount} onChange={e => setIncomeFormData(p => ({ ...p, amount: e.target.value }))} /></div>
+                      <div className="space-y-1.5"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Amount (Rs.)</label><input type="number" required step="0.01" className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-black text-lg dark:text-white" value={incomeFormData.amount} onChange={e => setIncomeFormData(p => ({ ...p, amount: e.target.value }))} /></div>
                       <div className="space-y-1.5"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Value Date</label><input type="date" required className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white" value={incomeFormData.date} onChange={e => setIncomeFormData(p => ({ ...p, date: e.target.value }))} /></div>
                    </div>
                    <div className="space-y-1.5">
@@ -876,7 +875,7 @@ export const ProjectList: React.FC = () => {
       {showInvoiceModal && viewingProject && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
            <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-lg shadow-2xl overflow-hidden animate-in slide-in-from-bottom-8 duration-300">
-              <div className="p-8 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-indigo-50/30 dark:bg-indigo-900/20">
+              <div className="p-8 border-b border-slate-100 dark:border-slate-700 bg-indigo-50/30 dark:bg-indigo-900/20">
                  <div className="flex gap-4 items-center">
                     <div className="p-3 bg-indigo-600 text-white rounded-2xl shadow-lg"><FileText size={24} /></div>
                     <div>
@@ -933,8 +932,8 @@ export const ProjectList: React.FC = () => {
                   </select>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Quantity</label><input type="number" step="0.01" required className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-black text-lg" value={inventoryUsageForm.quantity} onChange={e => setInventoryUsageForm(p => ({ ...p, quantity: e.target.value }))} placeholder="0.00" /></div>
-                  <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Date</label><input type="date" required className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold" value={inventoryUsageForm.date} onChange={e => setInventoryUsageForm(p => ({ ...p, date: e.target.value }))} /></div>
+                  <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Quantity</label><input type="number" step={allowDecimalStock ? "0.01" : "1"} required className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-black text-lg dark:text-white" value={inventoryUsageForm.quantity} onChange={e => setInventoryUsageForm(p => ({ ...p, quantity: e.target.value }))} placeholder="0.00" /></div>
+                  <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Date</label><input type="date" required className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-white" value={inventoryUsageForm.date} onChange={e => setInventoryUsageForm(p => ({ ...p, date: e.target.value }))} /></div>
                 </div>
                 <div className="space-y-1.5">
                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Remarks / Note</label>

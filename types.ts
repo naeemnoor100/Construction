@@ -123,6 +123,7 @@ export interface AppState {
   tradeCategories: string[];
   stockingUnits: string[];
   siteStatuses: string[];
+  allowDecimalStock: boolean; // Control for decimal inputs
   currentUser: User;
   theme: 'light' | 'dark';
   syncId?: string;
