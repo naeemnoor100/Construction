@@ -392,7 +392,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const totalAfterThis = prev.incomes
             .filter(inc => inc.invoiceId === inv.id)
             .reduce((sum, inc) => sum + inc.amount, 0) + i.amount;
-          // Fix: Explicitly cast status to literal type to avoid TypeScript inference mismatching status as a broad 'string'
           return { ...inv, status: (totalAfterThis >= inv.amount - 0.01 ? 'Paid' : 'Sent') as Invoice['status'] };
         }
         return inv;
@@ -418,7 +417,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             const remainingIncomes = prev.incomes
               .filter(inc => inc.invoiceId === inv.id && inc.id !== id)
               .reduce((sum, inc) => sum + inc.amount, 0);
-            // Fix: Explicitly cast status to literal type to avoid TypeScript inference mismatching status as a broad 'string'
             return { ...inv, status: (remainingIncomes >= inv.amount - 0.01 ? 'Paid' : 'Sent') as Invoice['status'] };
           }
           return inv;
@@ -435,7 +433,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const updateInvoice = async (inv: Invoice) => {
     await apiRequest('PUT', `/invoices/${inv.id}`, inv);
-    setState(prev => ({ ...prev, invoices: prev.invoices.map(i => i.id === inv.id ? i : i) }));
+    setState(prev => ({ ...prev, invoices: prev.invoices.map(i => i.id === inv.id ? inv : i) }));
   };
 
   const deleteInvoice = async (id: string) => {
