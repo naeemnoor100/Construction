@@ -765,7 +765,7 @@ export const ProjectList: React.FC = () => {
       {/* Record Arrival Modal */}
       {showRecordArrivalModal && viewingProject && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
-           <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-w-lg shadow-2xl overflow-hidden animate-in slide-in-from-bottom-8 duration-300">
+           <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-lg shadow-2xl overflow-hidden animate-in slide-in-from-bottom-8 duration-300">
               <div className="p-8 border-b border-slate-100 dark:border-slate-700 bg-amber-50/30 dark:bg-amber-900/10 flex justify-between items-center">
                  <div className="flex gap-4 items-center">
                     <div className="p-3 bg-amber-600 text-white rounded-2xl shadow-lg"><ShoppingCart size={24} /></div>
@@ -874,7 +874,7 @@ export const ProjectList: React.FC = () => {
       {/* Quick Invoice Modal */}
       {showInvoiceModal && viewingProject && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
-           <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-w-lg shadow-2xl overflow-hidden animate-in slide-in-from-bottom-8 duration-300">
+           <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] w-full max-lg shadow-2xl overflow-hidden animate-in slide-in-from-bottom-8 duration-300">
               <div className="p-8 border-b border-slate-100 dark:border-slate-700 bg-indigo-50/30 dark:bg-indigo-900/20">
                  <div className="flex gap-4 items-center">
                     <div className="p-3 bg-indigo-600 text-white rounded-2xl shadow-lg"><FileText size={24} /></div>
